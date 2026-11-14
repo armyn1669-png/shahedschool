@@ -1,0 +1,21 @@
+"use client";
+import {useState} from "react";
+import dynamic from "next/dynamic";
+import type {AuthenticatedUser} from "@/lib/auth-db";
+const sectionLoading=()=> <div className="registry-empty" aria-live="polite">در حال بارگیری این بخش…</div>;
+const StudentRegistry=dynamic(()=>import("@/components/StudentRegistry").then(m=>m.StudentRegistry),{loading:sectionLoading});
+const TeacherManager=dynamic(()=>import("@/components/TeacherManager").then(m=>m.TeacherManager),{loading:sectionLoading});
+const AcademicWorkspace=dynamic(()=>import("@/components/AcademicWorkspace").then(m=>m.AcademicWorkspace),{loading:sectionLoading});
+const SchoolGroups=dynamic(()=>import("@/components/SchoolGroups").then(m=>m.SchoolGroups),{loading:sectionLoading});
+const StaffContactCard=dynamic(()=>import("@/components/StaffContactCard").then(m=>m.StaffContactCard),{loading:sectionLoading});
+const SchoolAnnouncements=dynamic(()=>import("@/components/SchoolAnnouncements").then(m=>m.SchoolAnnouncements),{loading:sectionLoading});
+const OnlineClassroom=dynamic(()=>import("@/components/OnlineClassroom").then(m=>m.OnlineClassroom),{loading:sectionLoading});
+const LearningWork=dynamic(()=>import("@/components/LearningWork").then(m=>m.LearningWork),{loading:sectionLoading});
+const DailyAttendanceManager=dynamic(()=>import("@/components/DailyAttendanceManager").then(m=>m.DailyAttendanceManager),{loading:sectionLoading});
+const AttendanceHistory=dynamic(()=>import("@/components/AttendanceHistory").then(m=>m.AttendanceHistory),{loading:sectionLoading});
+const SchoolBannerManager=dynamic(()=>import("@/components/SchoolBannerManager").then(m=>m.SchoolBannerManager),{loading:sectionLoading});
+const ManagerAccounts=dynamic(()=>import("@/components/ManagerAccounts").then(m=>m.ManagerAccounts),{loading:sectionLoading});
+const SchoolYearTools=dynamic(()=>import("@/components/SchoolYearTools").then(m=>m.SchoolYearTools),{loading:sectionLoading});
+type Section="students"|"managers"|"teachers"|"schedule"|"attendance"|"online"|"news"|"banners"|"year";
+const sections:Array<{id:Section;title:string;hint:string;icon:string;siteOnly?:boolean}>=[{id:"students",title:"دانش‌آموزان",hint:"پرونده‌ها و جست‌وجو",icon:"◎"},{id:"managers",title:"مدیران و ناظمان",hint:"حساب‌های مدیریتی",icon:"♙",siteOnly:true},{id:"teachers",title:"دبیران",hint:"حساب‌ها و تماس‌ها",icon:"♧"},{id:"schedule",title:"برنامهٔ کلاسی",hint:"کلاس‌ها و زنگ‌ها",icon:"▦"},{id:"attendance",title:"غیبت‌های روزانه",hint:"ثبت، بررسی و گزارش روز",icon:"◷"},{id:"online",title:"کلاس و تکلیف",hint:"جلسه‌ها و ارزیابی",icon:"◉"},{id:"news",title:"خبرها و گروه‌ها",hint:"مطالب و کانال‌های مدرسه",icon:"✉"},{id:"banners",title:"بنرها",hint:"بنر دانش‌آموزان",icon:"▤"},{id:"year",title:"سال تحصیلی و پاک‌سازی",hint:"تازه‌سازی حساب‌ها و حذف داده‌ها",icon:"⚙",siteOnly:true}];
+export function AdminDashboard({user}:{user:AuthenticatedUser}){const[section,setSection]=useState<Section>("students"),isSiteAdmin=user.adminScope==="site",visibleSections=sections.filter(x=>!x.siteOnly||isSiteAdmin);return <main className="admin-portal" dir="rtl"><header><div><span>سامانهٔ مدیریت مدرسه</span><h1>{isSiteAdmin?"پنل مدیر سایت":`پنل ${user.adminTitle||"مدیر/ناظم"}`}</h1><p>دسترسی کامل به امور آموزشی و اجرایی مدرسه؛ بخش موردنظر را انتخاب کنید.</p></div></header><nav aria-label="بخش‌های پنل مدیر">{visibleSections.map(x=><button type="button" key={x.id} className={section===x.id?"active":""} onClick={()=>setSection(x.id)}><i>{x.icon}</i><strong>{x.title}</strong><small>{x.hint}</small></button>)}</nav><section className="admin-portal-content"><h2>{visibleSections.find(x=>x.id===section)?.title}</h2>{section==="students"&&<StudentRegistry/>}{section==="managers"&&isSiteAdmin&&<ManagerAccounts/>}{section==="teachers"&&<><TeacherManager/><StaffContactCard/></>}{section==="schedule"&&<AcademicWorkspace role="admin"/>}{section==="attendance"&&<><DailyAttendanceManager/><AttendanceHistory role="admin"/></>}{section==="online"&&<><OnlineClassroom role="admin"/><LearningWork role="admin"/></>}{section==="news"&&<><SchoolAnnouncements role="admin"/><SchoolGroups role="admin"/></>}{section==="banners"&&<SchoolBannerManager/>}{section==="year"&&isSiteAdmin&&<SchoolYearTools/>}</section></main>}

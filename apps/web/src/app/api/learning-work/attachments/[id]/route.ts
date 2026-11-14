@@ -1,0 +1,4 @@
+import {currentUser} from "@/lib/current-user";
+import {assignmentAttachment} from "@/lib/learning-work";
+export const runtime="nodejs";export const dynamic="force-dynamic";
+export async function GET(_request:Request,{params}:{params:Promise<{id:string}>}){const user=await currentUser();if(!user)return new Response("ورود لازم است",{status:401});const id=Number((await params).id);if(!Number.isSafeInteger(id)||id<1)return new Response("فایل پیدا نشد",{status:404});const file=await assignmentAttachment(user,id);if(!file)return new Response("فایل پیدا نشد یا به آن دسترسی ندارید",{status:404});return new Response(Buffer.from(file.data),{headers:{"Content-Type":file.mimeType,"Content-Disposition":"inline; filename*=UTF-8''"+encodeURIComponent(file.name),"Cache-Control":"private, no-store","X-Content-Type-Options":"nosniff"}})}

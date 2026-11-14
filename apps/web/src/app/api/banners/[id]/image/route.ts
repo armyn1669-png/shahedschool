@@ -1,0 +1,5 @@
+import {currentUser} from "@/lib/current-user";
+import {database,ensureDatabaseReady} from "@/lib/auth-db";
+import { dbGet } from "@/lib/db";
+export const runtime="nodejs";export const dynamic="force-dynamic";
+export async function GET(_request:Request,{params}:{params:Promise<{id:string}>}){const user=await currentUser();if(!user)return new Response(null,{status:401});const id=Number((await params).id);if(!Number.isSafeInteger(id)||id<1)return new Response(null,{status:404});await ensureDatabaseReady();const row=(await dbGet(await database(), "SELECT image_data AS imageData FROM school_banners WHERE id=?", id)) as {imageData:string}|undefined;if(!row?.imageData)return new Response(null,{status:404});const match=row.imageData.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);if(!match)return new Response(null,{status:404});return new Response(Buffer.from(match[2],"base64"),{headers:{"Content-Type":`image/${match[1]}`,"Cache-Control":"private, max-age=86400","X-Content-Type-Options":"nosniff"}})}

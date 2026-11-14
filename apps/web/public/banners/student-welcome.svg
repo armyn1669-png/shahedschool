@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 360" role="img" aria-label="بنر آبی مدرسه برای دانش‌آموزان">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#123f7d"/><stop offset=".58" stop-color="#1769c2"/><stop offset="1" stop-color="#60a5fa"/></linearGradient>
+    <linearGradient id="book" x1="0" y1="0" x2="0" y2="1"><stop stop-color="#fff"/><stop offset="1" stop-color="#dcecff"/></linearGradient>
+    <pattern id="dots" width="26" height="26" patternUnits="userSpaceOnUse"><circle cx="2" cy="2" r="1.5" fill="#fff" opacity=".2"/></pattern>
+  </defs>
+  <rect width="1200" height="360" rx="30" fill="url(#bg)"/><rect width="1200" height="360" rx="30" fill="url(#dots)"/>
+  <circle cx="1070" cy="28" r="180" fill="#fff" opacity=".06"/><circle cx="890" cy="360" r="150" fill="#a9d2ff" opacity=".12"/>
+  <g transform="translate(820 76)">
+    <path d="M35 44c68-35 122-31 178 3v153c-57-32-111-35-178-4z" fill="url(#book)"/>
+    <path d="M213 47c56-34 111-38 178-3v152c-67-31-121-28-178 4z" fill="#f4f9ff"/>
+    <path d="M213 49v151" stroke="#82acd8" stroke-width="5"/>
+    <path d="M62 78c40-17 76-19 112-8M62 105c40-17 76-19 112-8M62 132c40-17 76-19 112-8M241 70c41-17 77-15 122 2M241 97c41-17 77-15 122 2M241 124c41-17 77-15 122 2" fill="none" stroke="#9ab8d9" stroke-width="5" stroke-linecap="round"/>
+    <path d="m184 26 15-21 15 21v22h-30z" fill="#ffd66b"/><path d="M199 4v-9" stroke="#ffd66b" stroke-width="5" stroke-linecap="round"/>
+  </g>
+  <g fill="#fff" font-family="Tahoma, Arial, sans-serif" text-anchor="end" direction="rtl">
+    <text x="760" y="123" font-size="25" opacity=".78">مدرسهٔ شاهد سید احمد خمینی (ره)</text>
+    <text x="760" y="190" font-size="47" font-weight="700">به مسیر روشن یادگیری خوش آمدی</text>
+    <text x="760" y="239" font-size="23" opacity=".86">خبرها، برنامهٔ درسی و کلاس‌های مدرسه را از پنل خودت دنبال کن.</text>
+  </g>
+  <g transform="translate(86 254)"><rect width="220" height="56" rx="18" fill="#fff"/><text x="110" y="37" text-anchor="middle" fill="#1558a2" font-family="Tahoma, Arial, sans-serif" font-size="20" font-weight="700">دیدن برنامهٔ من  ←</text></g>
+</svg>

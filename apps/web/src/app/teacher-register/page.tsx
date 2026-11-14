@@ -1,0 +1,6 @@
+import Link from "next/link";
+import { TeacherRegistrationForm } from "@/components/TeacherRegistrationForm";
+
+export const metadata = { title: "درخواست حساب دبیر | دبیرستان سید احمد خمینی" };
+
+export default function TeacherRegisterPage(){return <main className="auth-page auth-page-teacher"><div className="auth-top"><Link className="auth-brand" href="/"><span className="brand-seal"><span>س</span></span><span><strong>دبیرستان سید احمد خمینی</strong><small>درخواست حساب دبیر</small></span></Link><Link className="back-link" href="/login?role=teacher">ورود دبیر ←</Link></div><section className="auth-layout register-layout"><div className="auth-card"><span className="auth-kicker">ثبت درخواست همکاری</span><h1>درخواست پنل دبیر</h1><p className="auth-intro">مشخصات و شمارهٔ همراه را وارد کنید. مدیر مدرسه درخواست را بررسی می‌کند.</p><TeacherRegistrationForm/></div><aside className="auth-aside"><span className="aside-overline">حساب اختصاصی دبیر</span><h2>درخواست شما<br/>پس از بررسی فعال می‌شود.</h2><p>حساب دبیر فقط پس از تأیید مدیر مدرسه ساخته و فعال خواهد شد.</p><div className="aside-rule"/><span className="aside-school">دبیرستان سید احمد خمینی</span></aside></section><footer className="auth-footer">ثبت درخواست به‌معنی تأیید نهایی نیست <span>•</span> بررسی توسط مدیر مدرسه</footer></main>;}

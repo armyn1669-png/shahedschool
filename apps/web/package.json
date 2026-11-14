@@ -1,0 +1,30 @@
+{
+  "name": "@school/web",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "typecheck": "tsc --noEmit",
+    "start": "next start -p ${PORT:-3000}"
+  },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0",
+    "@school/shared": "*",
+    "livekit-client": "^2.23.0",
+    "livekit-server-sdk": "^2.19.3",
+    "next": "^16.0.0",
+    "pdfjs-dist": "^6.5.438",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.9.3"
+  }
+}

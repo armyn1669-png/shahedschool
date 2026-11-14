@@ -1,0 +1,3 @@
+import { NextResponse } from "next/server";import { currentUser } from "@/lib/current-user";import { classroomDocument } from "@/lib/online-classroom";
+export const runtime="nodejs";export const dynamic="force-dynamic";
+export async function GET(_request:Request,{params}:{params:Promise<{id:string}>}){const user=await currentUser();if(!user)return new NextResponse('Unauthorized',{status:401});const doc=await classroomDocument(user,(await params).id);if(!doc)return new NextResponse('Forbidden',{status:403});return new NextResponse(new Uint8Array(doc.data),{headers:{'Content-Type':doc.mimeType,'Content-Disposition':`inline; filename*=UTF-8''${encodeURIComponent(doc.name)}`,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff'}});}

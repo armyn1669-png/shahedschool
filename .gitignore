@@ -11,3 +11,6 @@ tools/livekit-server.exe
 *.log
 
 .pnpm-store/
+
+# Local Netlify folder
+.netlify

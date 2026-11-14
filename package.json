@@ -3,10 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "description": "سامانه مدیریت دبیرستان سید احمد خمینی",
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "dev": "npm run dev --workspace=@school/web",
     "build": "npm run build --workspace=@school/web",
-    "typecheck": "npm run typecheck --workspace=@school/web && npm run typecheck --workspace=@school/shared"
+    "typecheck": "npm run typecheck --workspace=@school/web && npm run typecheck --workspace=@school/shared",
+    "start": "npm run start --workspace=@school/web"
   }
 }

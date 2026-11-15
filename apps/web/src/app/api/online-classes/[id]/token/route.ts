@@ -38,7 +38,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const id = Number(rawId);
   if (!Number.isSafeInteger(id) || id < 1) return NextResponse.json({ error: "شناسهٔ کلاس معتبر نیست." }, { status: 400 });
   const onlineClass = await onlineClassAccess(user,id);
-  if (!onlineClass) return NextResponse.json({ error: "این کلاس برای حساب شما در دسترس نیست یا جلسه پایان یافته است." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  if (!onlineClass) return NextResponse.json({ error: user.role === "admin" ? "مدیر فقط می‌تواند جلسهٔ زنده را مشاهده کند؛ در حال حاضر جلسه‌ای در حال برگزاری نیست." : "این کلاس برای حساب شما در دسترس نیست یا جلسه پایان یافته است." }, { status: 403, headers: { "Cache-Control": "no-store" } });
   if (user.role === "student") {
     const admission = await getOnlineClassAdmission(id, user.id);
     if (!admission) {
@@ -52,6 +52,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const apiKey = process.env.LIVEKIT_API_KEY?.trim();
   const apiSecret = process.env.LIVEKIT_API_SECRET?.trim();
   if (!serverUrl || !apiKey || !apiSecret) return NextResponse.json({ code: "livekit_not_configured", error: "سرور کلاس آنلاین هنوز پیکربندی نشده است. مدیر باید LIVEKIT_URL و LIVEKIT_API_KEY و LIVEKIT_API_SECRET را در متغیرهای محیطی هاست (مثلاً Netlify) ست کند و دوباره دیپلوی بگیرد؛ در اجرای لوکال همان‌ها را در apps/web/.env.local بگذارید." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  // B3: an obvious placeholder (e.g. the dev key from .env.local.example) must
+  // never mint a real-looking token that points at a server that does not exist.
+  if ([serverUrl, apiKey, apiSecret].some((value) => /devkey|placeholder/i.test(value))) return NextResponse.json({ code: "livekit_placeholder", error: "کلید یا نشانی LiveKit هنوز مقدار نمونه (placeholder) است؛ مدیر باید کلید واقعی سرور LiveKit را در تنظیمات هاست وارد کند." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   if (!/^wss?:\/\//i.test(serverUrl)) return NextResponse.json({ code: "livekit_bad_url", error: "نشانی سرور کلاس آنلاین باید با ws:// یا wss:// شروع شود." }, { status: 503 });
   let livekitHost = "";
   try { livekitHost = new URL(serverUrl).hostname; } catch { return NextResponse.json({ code: "livekit_bad_url", error: "نشانی سرور کلاس آنلاین معتبر نیست." }, { status: 503 }); }
@@ -60,6 +63,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const roomName = `school-class-${onlineClass.id}`;
   const token = new AccessToken(apiKey,apiSecret,{identity:`user-${user.id}-${randomUUID()}`,name:user.displayName,metadata:JSON.stringify({role:user.role}),ttl:"2h"});
   const isTeacher=user.role==="teacher";
+  // Admins join view-only: canPublish false + no publish sources + not room admin.
   token.addGrant({roomJoin:true,room:roomName,canPublish:isTeacher,canPublishSources:isTeacher?[TrackSource.CAMERA,TrackSource.MICROPHONE,TrackSource.SCREEN_SHARE]:[],canSubscribe:true,canPublishData:true,roomAdmin:isTeacher});
   return NextResponse.json({ token: await token.toJwt(), serverUrl, roomName, role:user.role, participantName:user.displayName }, { headers: { "Cache-Control": "no-store" } });
 }

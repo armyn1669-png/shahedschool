@@ -27,7 +27,7 @@ export function BellScheduleManager() {
   }
   return <section className="bell-schedule-manager"><div className="academic-head"><div><span className="auth-kicker">تنظیمات مشترک مدرسه</span><h2>ساعت زنگ‌های مدرسه</h2><p>ساعت شروع و پایان زنگ‌ها برای برنامهٔ درسی و حضور و غیاب مدرسه ثبت می‌شود.</p></div></div>
     {error && <p className="auth-error" role="alert">{error}</p>}{notice && <p className="academic-notice" role="status">{notice}</p>}
-    <div className="bell-period-grid">{periods.filter(period => period.period <= 4).map(period => <article key={period.period}><h3>زنگ {period.period}</h3>
+    <div className="bell-period-grid">{periods.map(period => <article key={period.period}><h3>زنگ {period.period}</h3>
       <label>ساعت شروع<input className="auth-input" type="time" value={period.startTime} onChange={event => setPeriods(rows => rows.map(row => row.period === period.period ? { ...row, startTime: event.target.value } : row))} /></label>
       <label>ساعت پایان<input className="auth-input" type="time" value={period.endTime} onChange={event => setPeriods(rows => rows.map(row => row.period === period.period ? { ...row, endTime: event.target.value } : row))} /></label>
       <button disabled={busy} onClick={() => void save(period)}>ذخیرهٔ زنگ</button>

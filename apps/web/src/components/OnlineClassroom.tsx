@@ -21,17 +21,16 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
   const [notice, setNotice] = useState("");
   const [room, setRoom] = useState<OnlineClass | null>(null);
   const [postClassAttendanceId,setPostClassAttendanceId]=useState(0);
-  const roomRef = useRef<OnlineClass | null>(null); const previousStatuses = useRef(new Map<number, OnlineClass["status"]>()); const hasInitialSnapshot = useRef(false);
+  const roomRef = useRef<OnlineClass | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
   const refresh = useCallback(async () => {
     const response = await fetch("/api/online-classes", { cache: "no-store" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "کلاس‌های آنلاین بارگیری نشدند.");
     setData(body);
-    const statuses = new Map<number, OnlineClass["status"]>(body.classes.map((item: OnlineClass) => [item.id, item.status]));
     if (roomRef.current) { const activeRoom=roomRef.current;const updatedRoom = body.classes.find((item: OnlineClass) => item.id === activeRoom.id); if (!updatedRoom || updatedRoom.status !== "live") { if(role==="teacher"&&updatedRoom?.status==="ended")setPostClassAttendanceId(activeRoom.id);roomRef.current = null; setRoom(null); setNotice("جلسه پایان یافت و گزارش آن برای مدیر ثبت شد."); } }
-    if (role === "student" && hasInitialSnapshot.current && !roomRef.current) { const newlyLive = body.classes.filter((item: OnlineClass) => item.status === "live" && previousStatuses.current.get(item.id) !== "live").sort((a: OnlineClass,b: OnlineClass) => b.startsAtEpoch-a.startsAtEpoch)[0]; if (newlyLive) { roomRef.current = newlyLive; setRoom(newlyLive); setNotice("دبیر کلاس را شروع کرد؛ در حال ورود به اتاق…"); } }
-    previousStatuses.current = statuses; hasInitialSnapshot.current = true;
+    // No auto-join: a live class only shows the banner + join button; the
+    // student chooses when to enter.
     if (role === "teacher" && !selectedCourseId && body.courses?.[0]) setSelectedCourseId(body.courses[0].id);
   }, [role, selectedCourseId]);
   useEffect(() => {
@@ -58,13 +57,12 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
     } catch (e) { setError(e instanceof Error ? e.message : "ذخیرهٔ جلسه انجام نشد."); }
     finally { setBusy(false); }
   }
-  async function changeStatus(item: OnlineClass, status: "live" | "ended" | "cancelled") {
+  async function changeStatus(item: OnlineClass, status: "ended" | "cancelled") {
     setError(""); setNotice("");
     try {
       const response = await fetch("/api/online-classes", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: item.id, status }) });
       const body = await response.json(); if (!response.ok) throw new Error(body.error);
-      setNotice(status === "live" ? "جلسه شروع شد و اتاق کلاس باز شد." : "وضعیت جلسه به‌روزرسانی شد.");
-      if (status === "live") setRoom({ ...item, status: "live" });
+      setNotice("وضعیت جلسه به‌روزرسانی شد.");
       if (status === "ended" || status === "cancelled") setRoom(current => current?.id === item.id ? null : current);
       await refresh();
     } catch (e) { setError(e instanceof Error ? e.message : "تغییر وضعیت انجام نشد."); }
@@ -93,7 +91,7 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
       <button className="auth-submit online-start-button" disabled={busy || !data.courses.length}>{busy ? "در حال شروع…" : "▶ شروع کلاس آنلاین"}</button>
     </form>}
     {role === "admin" && <p className="online-provider-note">این بخش گزارش جلسه‌ها را ثبت می‌کند؛ دبیر با شروع کلاس، زمان شروع و پایان واقعی را در فهرست می‌گذارد.</p>}
-    {role === "admin" && <p><a className="online-join-button" href="/api/online-classes/export">دانلود اکسل نشست‌ها</a></p>}
+    {role === "admin" && <p><a className="online-join-button" href="/api/online-classes/export">دانلود نشست‌ها (CSV اکسل)</a></p>}
     {role==="teacher"&&postClassAttendanceId>0&&<div className="post-class-attendance"><OnlineAttendanceReview courseId={focusCourseId} initialSessionId={postClassAttendanceId} onDone={()=>{setPostClassAttendanceId(0);setNotice("گزارش غیبت و تأخیر برای بررسی مدیر ارسال شد.")}}/><button type="button" onClick={()=>setPostClassAttendanceId(0)}>بعداً بررسی می‌کنم</button></div>}
     {role === "student" && liveClass && !room && <div className="online-live-banner" role="status"><span className="online-live-dot" aria-hidden="true" /><div><strong>کلاس زنده است</strong><span>{liveClass.title} · {liveClass.courseTitle} · دبیر: {liveClass.teacherName}</span></div><button type="button" className="online-live-join" onClick={() => setRoom(liveClass)}>ورود به کلاس</button></div>}
     <div className="online-session-list"><div className="online-list-heading"><h3>{role === "student" ? "جلسه‌های کلاس من" : role === "teacher" ? "جلسه‌های کلاس‌های شما" : "جلسه‌های آنلاین"}</h3><span>{visibleClasses.length} جلسه</span>{role === "teacher" && <button type="button" onClick={() => refresh().catch(e => setError(e instanceof Error ? e.message : "بارگیری انجام نشد."))}>به‌روزرسانی فهرست</button>}</div>
@@ -104,12 +102,11 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
         {role === "admin" && item.actualStartedAt && <small className="online-session-actual-time">دبیر {item.teacherName}: شروع {timeOnly.format(new Date(item.actualStartedAt))}{item.actualEndedAt ? ` · پایان ${timeOnly.format(new Date(item.actualEndedAt))}` : " · در حال برگزاری"}</small>}
         {role !== "teacher" && <small className="online-session-teacher">دبیر: {item.teacherName}</small>}{item.description && <p className="online-session-description">{item.description}</p>}
         {role === "teacher" && item.status === "live" && item.extensionMinutes === 0 && item.endsAtEpoch - clockNow <= 600000 && item.endsAtEpoch - clockNow > 0 && <div className="online-session-overtime"><strong>هشدار: تا پایان زمان انتخابی {Math.max(1, Math.ceil((item.endsAtEpoch - clockNow) / 60000))} دقیقه مانده است.</strong><span>اگر کلاس ادامه دارد، می‌توانید پایان آن را به‌دلخواه عقب بیندازید.</span><button disabled={busy} onClick={() => void extend(item)}>افزودن ۵ دقیقه</button></div>}
-        <div className="online-session-actions">{item.status === "live" && role !== "admin" && <button className="online-join-button online-join-button--big" onClick={() => setRoom(item)}>ورود به کلاس <span>↗</span></button>}
-          {role === "teacher" && item.status === "scheduled" && <button disabled={clockNow < item.startsAtEpoch || clockNow >= item.endsAtEpoch} onClick={() => void changeStatus(item, "live")}>{clockNow < item.startsAtEpoch ? `شروع از ${timeOnly.format(new Date(item.startsAtEpoch))}` : clockNow >= item.endsAtEpoch ? "زمان جلسه تمام شده" : "شروع جلسه"}</button>}
+        <div className="online-session-actions">{item.status === "live" && <button className="online-join-button online-join-button--big" onClick={() => setRoom(item)}>{role === "admin" ? "مشاهدهٔ کلاس" : "ورود به کلاس"} <span>↗</span></button>}
           {role === "teacher" && item.status === "live" && <button onClick={() => void changeStatus(item, "ended")}>پایان جلسه</button>}
           {role === "teacher" && item.status === "ended" && <><button onClick={() => { window.location.hash = "teacher-attendance"; }}>بازبینی حضور این جلسه</button><a className="online-join-button" href={`/api/online-classes/${item.id}/classroom/export`}>دریافت یادداشت‌ها و گزارش تخته</a><button disabled={busy} onClick={()=>void hideHistory(item)}>حذف سابقه از فهرست من و دانش‌آموزان</button></>}
         </div>
-      </article>) : <div className="registry-empty"><span>◉</span><strong>جلسه‌ای ثبت نشده است</strong><small>{role === "teacher" ? "پس از انتخاب کلاس و زمان مجاز، جلسه را از فرم بالا بسازید." : role === "admin" ? "زمان زنگ‌ها و مجوزهای جبرانی را از تنظیمات برنامه تعیین کنید." : "وقتی دبیر جلسه را ثبت کند، اینجا نمایش داده می‌شود."}</small></div>}
+      </article>) : <div className="registry-empty"><span>◉</span><strong>جلسه‌ای ثبت نشده است</strong><small>{role === "teacher" ? "پس از انتخاب کلاس و زمان مجاز، جلسه را از فرم بالا بسازید." : role === "admin" ? "جلسه‌ای ثبت نشده؛ جلسات را دبیران شروع می‌کنند." : "وقتی دبیر جلسه را ثبت کند، اینجا نمایش داده می‌شود."}</small></div>}
     </div>
     {room && <LiveClassRoom classId={room.id} title={room.title} courseTitle={room.courseTitle} role={role} onClose={() => { roomRef.current = null; setRoom(null); }} onEnded={() => { void refresh(); setPostClassAttendanceId(room.id); setNotice("جلسه برای مدیر ثبت شد؛ غیبت‌ها را بررسی و در صورت تأیید ارسال کنید."); }} />}
   </section>;

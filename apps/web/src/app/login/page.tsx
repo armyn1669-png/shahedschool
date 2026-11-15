@@ -13,7 +13,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
   const showSetup = userCount === 0 && !setupUsed && Boolean(process.env.SCHOOL_SETUP_TOKEN);
   return (
     <main className={`auth-page${role === "student" ? " auth-page-student" : role === "admin" ? " auth-page-admin" : role === "teacher" ? " auth-page-teacher" : ""}`}>
-      <div className="auth-top"><Link className="auth-brand" href="/"><span className="brand-seal"><span>س</span></span><span><strong>دبیرستان سید احمد خمینی</strong><small>سامانهٔ یکپارچهٔ آموزشی</small></span></Link><Link className="back-link" href="/">بازگشت به صفحهٔ اصلی <span>←</span></Link></div>
+      <div className="auth-top"><Link className="auth-brand" href="/"><span className="brand-seal"><span>س</span></span><span><strong>دبیرستان سید احمد خمینی</strong><small>سامانهٔ یکپارچهٔ آموزشی</small></span></Link><Link className="back-link" href="/">بازگشت به صفحهٔ اصلی <span>→</span></Link></div>
       <section className="auth-layout">
         <div className="auth-card">
           <span className="auth-kicker">خوش آمدید</span>
@@ -26,7 +26,7 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
         <aside className="auth-aside">
           <span className="aside-overline">فضای امن مدرسه</span>
           <h2>هر نقش،<br />مسیر آموزشی خودش.</h2>
-          <p>دانش‌آموز، دبیر و مدیر با حساب اختصاصی خود به اطلاعات مجاز دسترسی پیدا می‌کنند.</p>
+          <p>دانش‌آموز، دبیر، والد و مدیر با حساب اختصاصی خود به اطلاعات مجاز دسترسی پیدا می‌کنند.</p>
           <div className="aside-rule" />
           <span className="aside-school">دبیرستان سید احمد خمینی</span>
         </aside>

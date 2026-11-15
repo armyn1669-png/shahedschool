@@ -53,7 +53,7 @@ async function seedSchoolChannels(db:Db){
   ];
   for(const item of defaults){let found=(await dbGet(db, "SELECT id FROM school_groups WHERE system_key=?", item.key)) as {id:number}|undefined;if(!found){const result=(await dbRun(db, "INSERT INTO school_groups(name,description,kind,visibility,external_url,image_data,created_by,created_at,system_key) VALUES(?,?,'channel',?,?,?,?,?,?)", item.name,item.description,item.visibility,item.url,item.image,owner.id,Date.now(),item.key));found={id:Number(result.lastInsertRowid)};}
     if(!found||!item.branch)continue;
-    (await dbRun(db, "INSERT OR IGNORE INTO school_group_targets(group_id,grade,field_of_study,branch) VALUES(?,'دهم','ریاضی',?)", found.id,item.branch==="۱"?"1":"2"));
+    (await dbRun(db, "INSERT OR IGNORE INTO school_group_targets(group_id,grade,field_of_study,branch) VALUES(?,'دهم','ریاضی و فیزیک',?)", found.id,item.branch==="۱"?"1":"2"));
     const courses=(await dbAll(db, "SELECT id,teacher_id AS teacherId,grade,field_of_study AS fieldOfStudy,branch FROM courses WHERE grade='دهم' AND field_of_study LIKE '%ریاضی%' AND branch IN (?,?)", item.branch,item.branch==="۱"?"1":"2")) as Array<{id:number;teacherId:number;grade:string;fieldOfStudy:string;branch:string}>;
     for(const course of courses){(await dbRun(db, "INSERT OR IGNORE INTO school_group_courses(group_id,course_id) VALUES(?,?)", found.id,course.id));(await dbRun(db, "INSERT OR IGNORE INTO school_group_members(group_id,user_id,member_role,added_at) VALUES(?,?,'manager',?)", found.id,course.teacherId,Date.now()));const roster=(await dbAll(db, "SELECT account_user_id AS userId FROM student_registrations WHERE status='approved' AND account_user_id IS NOT NULL AND grade=? AND field_of_study=? AND branch=?", course.grade,course.fieldOfStudy,course.branch)) as Array<{userId:number}>;for(const student of roster)(await dbRun(db, "INSERT OR IGNORE INTO school_group_members(group_id,user_id,member_role,added_at) VALUES(?,?,'member',?)", found.id,student.userId,Date.now()));}
   }
@@ -92,7 +92,7 @@ export async function schoolGroupImage(user:AuthenticatedUser,id:number){const d
 // می‌ماند؛ انتخاب کلاس و دبیر حذف شده و دیگر الزامی نیست. مخاطبِ «پایه و رشتهٔ خاص»
 // یک ردیف در school_group_targets می‌شود و در زمان نمایش محاسبه می‌شود، پس نیازی به
 // کپی‌کردن فهرست دانش‌آموزان در school_group_members نیست.
-export async function createSchoolGroup(owner:AuthenticatedUser,input:{name:string;visibility:"school"|"selected";externalUrl:string;imageData:string;target?:GroupTarget|null}){
+export async function createSchoolGroup(owner:AuthenticatedUser,input:{name:string;description?:string;visibility:"school"|"selected";externalUrl:string;imageData:string;target?:GroupTarget|null}){
   const db=await groupsDb();
   if(input.visibility!=="school"&&input.visibility!=="selected")return {ok:false as const,error:"شیوهٔ نمایش معتبر نیست."};
   const eitaaUrl=input.externalUrl.trim();
@@ -108,7 +108,7 @@ export async function createSchoolGroup(owner:AuthenticatedUser,input:{name:stri
     target={grade:t.grade,fieldOfStudy:t.fieldOfStudy,branch};
   }
   const groupId=await dbTransaction(async (tx)=>{
-    const created=(await dbRun(tx, `INSERT INTO school_groups(name,description,kind,visibility,external_url,image_data,created_by,created_at) VALUES(?,?,'channel',?,?,?,?,?)`, input.name.trim().slice(0,80),"",input.visibility,eitaaUrl,input.imageData,owner.id,Date.now()));
+    const created=(await dbRun(tx, `INSERT INTO school_groups(name,description,kind,visibility,external_url,image_data,created_by,created_at) VALUES(?,?,'channel',?,?,?,?,?)`, input.name.trim().slice(0,80),(input.description||"").trim().slice(0,500),input.visibility,eitaaUrl,input.imageData,owner.id,Date.now()));
     const id=Number(created.lastInsertRowid),now=Date.now();
     await dbRun(tx, "INSERT OR IGNORE INTO school_group_members(group_id,user_id,member_role,added_at) VALUES(?,?, 'manager',?)", id,owner.id,now);
     if(target)await dbRun(tx, "INSERT INTO school_group_targets(group_id,grade,field_of_study,branch) VALUES(?,?,?,?)", id,target.grade,target.fieldOfStudy,target.branch);

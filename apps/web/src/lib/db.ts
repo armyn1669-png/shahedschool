@@ -1,5 +1,6 @@
 import { createClient, type Client, type InValue, type Transaction } from "@libsql/client";
 import { isAbsolute, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export type { Client } from "@libsql/client";
 
@@ -25,7 +26,9 @@ export function resolveDatabaseUrl(): string {
   if (turso) return turso;
   const configured = process.env.SCHOOL_DB_PATH || "./data/school.sqlite";
   const path = isAbsolute(configured) ? configured : resolve(process.cwd(), configured);
-  return `file:${path}`;
+  // pathToFileURL percent-encodes "#" (and spaces), which a raw `file:`
+  // string would leave as a URL fragment and libsql rejects.
+  return pathToFileURL(path).toString();
 }
 
 export function isLocalDatabase(): boolean {

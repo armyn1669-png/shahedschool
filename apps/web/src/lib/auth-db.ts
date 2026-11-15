@@ -1,6 +1,7 @@
 import { createHash, randomBytes, scrypt as scryptCallback, timingSafeEqual } from "node:crypto";
 import { getClient, isLocalDatabase, dbGet, dbAll, dbRun, dbExec, dbTransaction, TxReturn, type Client, type Db } from "./db";
 const SESSION_LIFETIME_SECONDS = 60 * 60 * 8;
+const REMEMBER_ME_SESSION_LIFETIME_SECONDS = 60 * 60 * 24 * 30; // 30 days
 const LOGIN_WINDOW_MS = 15 * 60 * 1000;
 const LOGIN_MAX_FAILURES = 8;
 const COOKIE_NAME = "school_session";
@@ -127,6 +128,14 @@ export async function ensureDatabaseReady(): Promise<Client> {
     );
     CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
     CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at);
+    CREATE TABLE IF NOT EXISTS guardian_links (
+      guardian_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      registration_id INTEGER NOT NULL REFERENCES student_registrations(id) ON DELETE CASCADE,
+      created_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at INTEGER NOT NULL,
+      PRIMARY KEY(guardian_user_id, registration_id)
+    );
+    CREATE INDEX IF NOT EXISTS guardian_links_registration_idx ON guardian_links(registration_id);
     CREATE TABLE IF NOT EXISTS login_attempts (
       id INTEGER PRIMARY KEY,
       identity_key TEXT NOT NULL,
@@ -554,13 +563,99 @@ export async function reviewStudentRegistration(id: number, status: "approved" |
   });
 }
 
-export async function issueSession(userId: number) {
+
+export async function createGuardianAccount(actor: AuthenticatedUser, input: { displayName: string; phone: string; password: string }) {
+  if (actor.role !== "admin") return { ok: false as const, error: "فقط مدیر می‌تواند حساب والد بسازد." };
+  const db = await ensureDatabaseReady();
+  const displayName = input.displayName.trim().slice(0, 100);
+  const phone = normalizePhone(input.phone);
+  const username = phone; // guardian logs in with the guardian mobile number
+  if (displayName.length < 3 || !phone) return { ok: false as const, error: "نام سرپرست و شمارهٔ همراه معتبر را وارد کنید." };
+  if (input.password.length < 12 || input.password.length > 128) return { ok: false as const, error: "گذرواژه باید دست‌کم ۱۲ نویسه داشته باشد." };
+  const salt = randomBytes(16);
+  const hash = await passwordDigest(input.password, salt);
+  try {
+    const result = await dbRun(db, "INSERT INTO users (username, display_name, phone, role, password_salt, password_hash, created_at) VALUES (?, ?, ?, 'guardian', ?, ?, ?)", username, displayName, phone, salt.toString("hex"), hash, Date.now());
+    const id = Number(result.lastInsertRowid);
+    await dbRun(db, "INSERT INTO audit_events (actor_user_id, event_type, subject_user_id, created_at) VALUES (?, 'guardian.created', ?, ?)", actor.id, id, Date.now());
+    return { ok: true as const, id, username };
+  } catch (error) {
+    if (String(error).includes("UNIQUE constraint failed")) return { ok: false as const, error: "برای این شمارهٔ همراه قبلاً حساب والد ساخته شده است." };
+    throw error;
+  }
+}
+
+export async function listGuardianAccounts() {
+  const db = await ensureDatabaseReady();
+  const guardians = (await dbAll(db, "SELECT id, username, display_name AS displayName, phone, status, created_at AS createdAt FROM users WHERE role='guardian' ORDER BY display_name")) as Array<{ id: number; username: string; displayName: string; phone: string; status: string; createdAt: number }>;
+  const links = (await dbAll(db, "SELECT guardian_user_id AS guardianId, registration_id AS registrationId FROM guardian_links")) as Array<{ guardianId: number; registrationId: number }>;
+  const students = (await dbAll(db, "SELECT id, full_name AS fullName, grade, field_of_study AS fieldOfStudy, branch, status FROM student_registrations ORDER BY full_name")) as Array<{ id: number; fullName: string; grade: string; fieldOfStudy: string; branch: string; status: string }>;
+  return guardians.map((g) => ({
+    ...g,
+    children: links.filter((l) => l.guardianId === g.id).map((l) => students.find((s) => s.id === l.registrationId)).filter(Boolean),
+  }));
+}
+
+export async function linkGuardianToStudent(actor: AuthenticatedUser, guardianUserId: number, registrationId: number) {
+  if (actor.role !== "admin") return { ok: false as const, error: "فقط مدیر می‌تواند پیوند والد را ثبت کند." };
+  const db = await ensureDatabaseReady();
+  const guardian = (await dbGet(db, "SELECT id FROM users WHERE id=? AND role='guardian' AND status='active'", guardianUserId)) as { id: number } | undefined;
+  const student = (await dbGet(db, "SELECT id, guardian_phone AS guardianPhone FROM student_registrations WHERE id=? AND status='approved'", registrationId)) as { id: number; guardianPhone: string } | undefined;
+  if (!guardian) return { ok: false as const, error: "حساب والد پیدا نشد." };
+  if (!student) return { ok: false as const, error: "پروندهٔ دانش‌آموز تأییدشده پیدا نشد." };
+  await dbRun(db, "INSERT OR IGNORE INTO guardian_links(guardian_user_id, registration_id, created_by, created_at) VALUES(?,?,?,?)", guardianUserId, registrationId, actor.id, Date.now());
+  await dbRun(db, "INSERT INTO audit_events (actor_user_id, event_type, subject_user_id, created_at) VALUES (?, 'guardian.linked', ?, ?)", actor.id, guardianUserId, Date.now());
+  return { ok: true as const };
+}
+
+export async function unlinkGuardianFromStudent(actor: AuthenticatedUser, guardianUserId: number, registrationId: number) {
+  if (actor.role !== "admin") return { ok: false as const, error: "فقط مدیر می‌تواند پیوند والد را حذف کند." };
+  const db = await ensureDatabaseReady();
+  const changed = (await dbRun(db, "DELETE FROM guardian_links WHERE guardian_user_id=? AND registration_id=?", guardianUserId, registrationId)).changes;
+  if (!changed) return { ok: false as const, error: "این پیوند ثبت نشده است." };
+  await dbRun(db, "INSERT INTO audit_events (actor_user_id, event_type, subject_user_id, created_at) VALUES (?, 'guardian.unlinked', ?, ?)", actor.id, guardianUserId, Date.now());
+  return { ok: true as const };
+}
+
+export async function guardianChildren(userId: number) {
+  const db = await ensureDatabaseReady();
+  const rows = (await dbAll(db, `SELECT r.id, r.full_name AS fullName, r.national_id AS nationalId, r.phone, r.grade, r.field_of_study AS fieldOfStudy, r.branch,
+    r.guardian_name AS guardianName, r.guardian_phone AS guardianPhone
+    FROM guardian_links l JOIN student_registrations r ON r.id = l.registration_id
+    WHERE l.guardian_user_id = ? AND r.status = 'approved' ORDER BY r.full_name`, userId)) as Array<{ id: number; fullName: string; nationalId: string; phone: string; grade: string; fieldOfStudy: string; branch: string; guardianName: string; guardianPhone: string }>;
+  const out = [];
+  for (const child of rows) {
+    const attendance = (await dbAll(db, "SELECT attendance_date AS date, status, note, course_id AS courseId FROM attendance WHERE registration_id=? ORDER BY attendance_date DESC LIMIT 60", child.id)) as Array<{ date: string; status: string; note: string; courseId: number }>;
+    const grades = (await dbAll(db, "SELECT g.title, g.score, g.max_score AS maxScore, g.created_at AS createdAt, c.title AS course FROM grades g JOIN courses c ON c.id=g.course_id WHERE g.registration_id=? ORDER BY g.created_at DESC LIMIT 60", child.id)) as Array<{ title: string; score: number; maxScore: number; createdAt: number; course: string }>;
+    out.push({ ...child, attendance, grades });
+  }
+  return out;
+}
+
+export async function updateOwnAdminPassword(userId: number, input: { currentPassword: string; newPassword: string }) {
+  const db = await ensureDatabaseReady();
+  const user = (await dbGet(db, "SELECT password_salt, password_hash FROM users WHERE id=? AND role='admin' AND status='active'", userId)) as { password_salt: string; password_hash: string } | undefined;
+  if (!user) return { ok: false as const, error: "حساب مدیر پیدا نشد." };
+  const current = await passwordDigest(input.currentPassword, Buffer.from(user.password_salt, "hex"));
+  if (!safeEqualHex(user.password_hash, current)) return { ok: false as const, error: "گذرواژهٔ فعلی درست نیست." };
+  if (input.newPassword.length < 12 || input.newPassword.length > 128) return { ok: false as const, error: "گذرواژهٔ جدید باید ۱۲ تا ۱۲۸ نویسه باشد." };
+  const salt = randomBytes(16);
+  const hash = await passwordDigest(input.newPassword, salt);
+  await dbRun(db, "UPDATE users SET password_salt=?, password_hash=? WHERE id=?", salt.toString("hex"), hash, userId);
+  await dbRun(db, "UPDATE sessions SET revoked_at=? WHERE user_id=? AND revoked_at IS NULL", Date.now(), userId);
+  await dbRun(db, "INSERT INTO audit_events (actor_user_id, event_type, subject_user_id, created_at) VALUES (?, 'admin.password.changed', ?, ?)", userId, userId, Date.now());
+  return { ok: true as const };
+}
+
+export async function issueSession(userId: number, rememberMe = false) {
   const db = await ensureDatabaseReady();
   const rawToken = randomBytes(32).toString("base64url");
   const tokenHash = createHash("sha256").update(rawToken).digest("hex");
   const now = Date.now();
-  (await dbRun(db, "INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", tokenHash, userId, now + SESSION_LIFETIME_SECONDS * 1000, now));
-  return { token: rawToken, maxAge: SESSION_LIFETIME_SECONDS, cookieName: COOKIE_NAME };
+  // Same random token either way; only the lifetime changes (8h vs 30 days).
+  const lifetime = rememberMe ? REMEMBER_ME_SESSION_LIFETIME_SECONDS : SESSION_LIFETIME_SECONDS;
+  (await dbRun(db, "INSERT INTO sessions (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)", tokenHash, userId, now + lifetime * 1000, now));
+  return { token: rawToken, maxAge: lifetime, cookieName: COOKIE_NAME };
 }
 
 export async function resolveSession(token: string | undefined): Promise<AuthenticatedUser | null> {

@@ -40,9 +40,9 @@ export async function PATCH(request: Request) {
   if(!Number.isSafeInteger(id)||id<1)return NextResponse.json({error:"شناسهٔ جلسه معتبر نیست."},{status:400});
   if(body.action==="extend"){const result=await extendOnlineClass(user,id);return result.ok?NextResponse.json(result,{headers:{"Cache-Control":"no-store"}}):NextResponse.json({error:result.error},{status:400,headers:{"Cache-Control":"no-store"}});}
   const status = body.status;
-  if (!Number.isSafeInteger(id) || id < 1 || !["live","ended","cancelled"].includes(String(status))) return NextResponse.json({ error: "وضعیت جلسه معتبر نیست." }, { status: 400 });
-  const updated = await updateOnlineClass(user,id,status as "live"|"ended"|"cancelled");
-  if (updated && ["ended","cancelled"].includes(String(status)) && process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET) {
+  if (!Number.isSafeInteger(id) || id < 1 || !["ended","cancelled"].includes(String(status))) return NextResponse.json({ error: "وضعیت جلسه معتبر نیست." }, { status: 400 });
+  const updated = await updateOnlineClass(user,id,status as "ended"|"cancelled");
+  if (updated && process.env.LIVEKIT_URL && process.env.LIVEKIT_API_KEY && process.env.LIVEKIT_API_SECRET) {
     const host=process.env.LIVEKIT_URL.replace(/^ws:/i,"http:").replace(/^wss:/i,"https:");
     try { await new RoomServiceClient(host,process.env.LIVEKIT_API_KEY,process.env.LIVEKIT_API_SECRET).deleteRoom(`school-class-${id}`); } catch { /* Room may not have been created yet. */ }
   }

@@ -4,6 +4,7 @@ const panels = [
   { title: "مدیریت مدرسه", english: "ADMINISTRATION", description: "مدیریت امور آموزشی و اجرایی مدرسه", symbol: "م", tone: "admin-red", role: "admin", number: "۰۱" },
   { title: "دبیران", english: "TEACHERS", description: "کلاس‌ها، برنامه هفتگی و ثبت حضور", symbol: "د", tone: "teacher-yellow", role: "teacher", number: "۰۲" },
   { title: "دانش‌آموزان", english: "STUDENTS", description: "درس‌ها، تکالیف و کارنامه تحصیلی", symbol: "آ", tone: "student-blue", role: "student", number: "۰۳" },
+  { title: "والدین", english: "PARENTS", description: "پیگیری نمره‌ها و حضور و غیاب فرزند", symbol: "و", tone: "teal", role: "guardian", number: "۰۴" },
 ];
 
 const features = [
@@ -49,11 +50,9 @@ export default function HomePage() {
             <div className="book book-top"><span className="cover-school">دبیرستان<br />سید احمد خمینی</span><span className="cover-rule" /><span className="cover-caption">دانش، مسئولیت، آینده</span></div>
           </div>
           <div className="art-label label-b"><span className="live-dot" /><span>همراه در مسیر پیشرفت</span></div>
-          <a className="photo-credit" href="https://unsplash.com/s/photos/homework" target="_blank" rel="noreferrer">عکس: Unsplash</a>
           <div className="art-ground" />
         </div>
 
-        <div className="hero-index"><span>۰۱</span><i /><span>۰۳</span></div>
         <div className="hero-side-label">آموزش برای فردای روشن</div>
       </section>
 
@@ -84,7 +83,7 @@ export default function HomePage() {
               <article className="feature-item" key={feature.title}>
                 <span className="feature-icon" aria-hidden="true">{feature.icon}</span>
                 <span className="feature-copy"><strong>{feature.title}</strong><small>{feature.text}</small></span>
-                <span className="feature-number">۰{index + 1}</span>
+                <span className="feature-number">{["۰۱", "۰۲", "۰۳"][index]}</span>
               </article>
             ))}
           </div>

@@ -26,7 +26,7 @@ export async function POST(request:Request){
   if(!text("name",80)||!text("externalUrl",500)||!(["school","selected"] as unknown[]).includes(visibility)||imageData.length>2_000_000||(visibility==="selected"&&(!grade||!fieldOfStudy))){
     return NextResponse.json({error:"نام، لینک، شیوهٔ نمایش یا تصویر معتبر نیست."},{status:400,headers:{"Cache-Control":"no-store"}});
   }
-  const result=await createSchoolGroup(user,{name:text("name",80),visibility:visibility as "school"|"selected",externalUrl:text("externalUrl",500),imageData,target:visibility==="selected"?{grade,fieldOfStudy,branch}:null});
+  const result=await createSchoolGroup(user,{name:text("name",80),description:text("description",500),visibility:visibility as "school"|"selected",externalUrl:text("externalUrl",500),imageData,target:visibility==="selected"?{grade,fieldOfStudy,branch}:null});
   return result.ok?NextResponse.json(result,{status:201,headers:{"Cache-Control":"no-store"}}):NextResponse.json({error:result.error},{status:400,headers:{"Cache-Control":"no-store"}});
 }
 

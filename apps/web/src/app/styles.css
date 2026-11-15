@@ -685,3 +685,37 @@ video{max-width:100%}
      any bright photo. Banner size/height are unchanged. */
   .student-hero-shade{background:linear-gradient(270deg,#000c 0%,#0009 50%,#0006 100%)}
 }
+
+/* SkyRoom round 1 — styles for the new live-class panels (polls, media,
+   waiting room, chat delete/export). Same dark-green room theme as the
+   rest of the live room; plain rules so they work in the more-panel,
+   the people tab and the chat feed without extra layout. */
+.live-polls-panel{display:grid;gap:8px;min-width:min(320px,100%);padding:10px;border:1px solid #ffffff20;border-radius:9px;background:#202b25}
+.live-polls-panel>h4{margin:0;color:#f0f3ef;font-size:12px}
+.live-poll-create{display:grid;gap:6px}
+.live-poll-create input,.live-poll-create textarea{width:100%;padding:8px 9px;border:1px solid #ffffff26;border-radius:7px;background:#111a16;color:#f5f7f4;font:inherit;font-size:11px}
+.live-poll-create button{justify-self:start;padding:8px 14px;border:0;border-radius:7px;background:#8caf8d;color:#16251b;font:inherit;font-size:11px;cursor:pointer}
+.live-poll-create button:disabled{opacity:.5;cursor:not-allowed}
+.live-poll{display:grid;gap:6px;padding:9px;border:1px solid #ffffff16;border-radius:8px;background:#18221e}
+.live-poll>strong{color:#eef3ee;font-size:11px}
+.live-poll>small{color:#9aaba0;font-size:9px}
+.live-poll>button{justify-self:start;padding:6px 10px;border:1px solid #ffffff26;border-radius:7px;background:#24342b;color:#e0eadf;font:inherit;font-size:10px;cursor:pointer}
+.live-poll-option{display:grid;gap:3px}
+.live-poll-option>button,.live-poll-option>span:first-child{padding:7px 9px;border:1px solid #ffffff22;border-radius:7px;background:#24342b;color:#e8efe9;font:inherit;font-size:11px;text-align:right;cursor:pointer}
+.live-poll-option>button.active{border-color:#e0c34e;background:#453d1c;color:#fff2ad}
+.live-poll-bar{display:block;height:6px;border-radius:3px;background:#8caf8d}
+.live-poll-option>small{color:#9aaba0;font-size:9px}
+.live-media-banner{position:absolute;z-index:6;top:10px;right:50%;transform:translateX(50%);max-width:92%;padding:8px 14px;border:1px solid #e0c34e;border-radius:8px;background:#453d1c;color:#fff2ad;font-size:11px;text-align:center;box-shadow:0 8px 24px #0008}
+.live-media-playing{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid #e0c34e;border-radius:8px;background:#453d1c;color:#fff2ad;font-size:11px}
+.live-media-playing button{padding:6px 10px;border:0;border-radius:6px;background:#ab5149;color:#fff;font:inherit;font-size:10px;cursor:pointer}
+.live-admissions-panel{display:grid;gap:6px;padding:10px;border:1px solid #ffffff20;border-radius:9px;background:#202b25}
+.live-admissions-panel>strong{color:#f0f3ef;font-size:11px}
+.live-admissions-panel>small{color:#9aaba0;font-size:9px}
+.live-admission-row{display:flex;align-items:center;gap:8px;padding:7px 8px;border:1px solid #ffffff16;border-radius:7px;background:#18221e}
+.live-admission-row>span{flex:1;min-width:0;overflow:hidden;color:#e8efe9;font-size:11px;text-overflow:ellipsis;white-space:nowrap}
+.live-admission-row button{flex:none;padding:6px 11px;border:1px solid #ffffff26;border-radius:6px;background:#24342b;color:#e0eadf;font:inherit;font-size:10px;cursor:pointer}
+.live-admission-row button:first-of-type{background:#8caf8d;color:#16251b;border-color:transparent}
+.live-chat-delete{position:absolute;top:5px;left:6px;width:20px;height:20px;padding:0;border:0;border-radius:50%;background:#ffffff1c;color:#e8efe9;font:inherit;font-size:13px;line-height:1;cursor:pointer}
+.live-chat-delete:hover{background:#ab5149;color:#fff}
+.live-chat-export{padding:7px 11px;border:1px solid #ffffff26;border-radius:7px;background:#24342b;color:#e0eadf;font:inherit;font-size:10px;cursor:pointer}
+.live-record-note{opacity:.55;cursor:not-allowed}

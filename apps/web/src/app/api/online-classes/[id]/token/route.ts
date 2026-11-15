@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { AccessToken, TrackSource } from "livekit-server-sdk";
 import { NextResponse } from "next/server";
 import { currentUser } from "@/lib/current-user";
-import { onlineClassAccess } from "@/lib/online-classes";
+import { ensureOnlineClassAdmission, getOnlineClassAdmission, onlineClassAccess } from "@/lib/online-classes";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -39,6 +39,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   if (!Number.isSafeInteger(id) || id < 1) return NextResponse.json({ error: "شناسهٔ کلاس معتبر نیست." }, { status: 400 });
   const onlineClass = await onlineClassAccess(user,id);
   if (!onlineClass) return NextResponse.json({ error: "این کلاس برای حساب شما در دسترس نیست یا جلسه پایان یافته است." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  if (user.role === "student") {
+    const admission = await getOnlineClassAdmission(id, user.id);
+    if (!admission) {
+      await ensureOnlineClassAdmission(id, user.id);
+      return NextResponse.json({ code: "waiting_room", status: "pending", message: "در انتظار تأیید دبیر هستید؛ پس از تأیید به کلاس وارد می‌شوید." }, { status: 202, headers: { "Cache-Control": "no-store" } });
+    }
+    if (admission.status === "pending") return NextResponse.json({ code: "waiting_room", status: "pending", message: "در انتظار تأیید دبیر هستید؛ پس از تأیید به کلاس وارد می‌شوید." }, { status: 202, headers: { "Cache-Control": "no-store" } });
+    if (admission.status === "denied") return NextResponse.json({ code: "admission_denied", status: "denied", message: "دبیر ورود شما به این کلاس را رد کرد." }, { status: 403, headers: { "Cache-Control": "no-store" } });
+  }
   const serverUrl = process.env.LIVEKIT_URL?.trim();
   const apiKey = process.env.LIVEKIT_API_KEY?.trim();
   const apiSecret = process.env.LIVEKIT_API_SECRET?.trim();

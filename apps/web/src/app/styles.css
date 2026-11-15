@@ -776,3 +776,18 @@ video{max-width:100%}
  .live-room-sidebar,.live-room-sidebar.mobile-open{flex-basis:300px!important;height:300px!important}
  .live-stage{min-height:200px!important}
 }
+.live-record-note.enabled>span{background:#ab5149;color:#fff}
+.live-record-note.enabled small{color:#ffb4a8}
+.live-record-error{display:block;max-width:220px;color:#ffb4a8;font-size:8px;line-height:1.7;overflow-wrap:anywhere}
+.recordings-list{margin-top:18px;padding:16px;border:1px solid #e7ece5;border-radius:10px;background:#fbfcfa}
+.recordings-list h3{margin:0 0 4px;color:#3e5b4b;font-size:12px}
+.recordings-list>p{margin:0 0 10px;color:#7e8c82;font-size:8px}
+.recording-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 0;border-top:1px solid #eef0eb}
+.recording-row>div{display:grid;gap:2px;flex:1;min-width:180px}
+.recording-row strong{color:#345142;font-size:9px;overflow-wrap:anywhere}
+.recording-row small{color:#87938a;font-size:8px}
+.recording-status{padding:3px 8px;border-radius:20px;background:#e5f2e4;color:#4a7b51;font-size:7px}
+.recording-status.failed{background:#fbe9e7;color:#a35b50}
+.recording-status.recording{background:#fdeceb;color:#a33c33}
+.recording-row a{padding:8px 12px;border-radius:6px;background:#315c4e;color:#fff;font-size:8px;text-decoration:none}
+@media(max-width:650px){.recordings-list{padding:13px}.recording-row a{width:100%;text-align:center}}

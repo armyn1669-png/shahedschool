@@ -8,6 +8,7 @@ import { OnlineAttendanceReview } from "@/components/OnlineAttendanceReview";
 type Course = { id: number; title: string; grade: string; fieldOfStudy: string; branch: string; weekday: string; period: number; weekPattern: string; startTime: string; teacherName: string };
 type OnlineClass = { id: number; courseId: number; title: string; description: string; startsAt: string; startsAtEpoch: number; endsAt: string; endsAtEpoch: number; actualStartedAt: string | null; actualEndedAt: string | null; extensionMinutes: number; status: "scheduled" | "live" | "ended" | "cancelled"; courseTitle: string; grade: string; fieldOfStudy: string; branch: string; teacherName: string };
 type Snapshot = { classes: OnlineClass[]; courses: Course[] };
+type Recording = { id: number; onlineClassId: number; classTitle: string; egressId: string; status: "recording" | "stopped" | "completed" | "failed"; filePath: string; startedAt: number; endedAt: number | null; durationSeconds: number | null; downloadUrl?: string };
 const dateTime = new Intl.DateTimeFormat("fa-IR", { dateStyle: "full", timeStyle: "short", timeZone: "Asia/Tehran" });
 const timeOnly = new Intl.DateTimeFormat("fa-IR", { timeStyle: "short", timeZone: "Asia/Tehran" });
 function statusLabel(status: OnlineClass["status"]) { return ({ scheduled: "زمان‌بندی‌شده", live: "در حال برگزاری", ended: "پایان‌یافته", cancelled: "لغوشده" })[status]; }
@@ -23,6 +24,14 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
   const [postClassAttendanceId,setPostClassAttendanceId]=useState(0);
   const roomRef = useRef<OnlineClass | null>(null);
   const [clockNow, setClockNow] = useState(Date.now());
+  const [recordings, setRecordings] = useState<Recording[]>([]);
+  const refreshRecordings = useCallback(async () => {
+    if (role !== "teacher" && role !== "admin") return;
+    const response = await fetch("/api/online-classes/recordings", { cache: "no-store" });
+    const body = await response.json();
+    if (!response.ok) throw new Error(body.error || "ضبط‌ها بارگیری نشدند.");
+    setRecordings(body.recordings || []);
+  }, [role]);
   const refresh = useCallback(async () => {
     const response = await fetch("/api/online-classes", { cache: "no-store" });
     const body = await response.json();
@@ -32,7 +41,8 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
     // No auto-join: a live class only shows the banner + join button; the
     // student chooses when to enter.
     if (role === "teacher" && !selectedCourseId && body.courses?.[0]) setSelectedCourseId(body.courses[0].id);
-  }, [role, selectedCourseId]);
+    await refreshRecordings().catch(() => {});
+  }, [role, selectedCourseId, refreshRecordings]);
   useEffect(() => {
     refresh().catch(e => setError(e instanceof Error ? e.message : "بارگیری انجام نشد."));
     const clock = setInterval(() => setClockNow(Date.now()), 5000);
@@ -108,6 +118,7 @@ export function OnlineClassroom({ role, focusCourseId }: { role: SchoolRole; foc
         </div>
       </article>) : <div className="registry-empty"><span>◉</span><strong>جلسه‌ای ثبت نشده است</strong><small>{role === "teacher" ? "پس از انتخاب کلاس و زمان مجاز، جلسه را از فرم بالا بسازید." : role === "admin" ? "جلسه‌ای ثبت نشده؛ جلسات را دبیران شروع می‌کنند." : "وقتی دبیر جلسه را ثبت کند، اینجا نمایش داده می‌شود."}</small></div>}
     </div>
+    {(role === "teacher" || role === "admin") && <div className="recordings-list"><h3>ضبط‌های کلاس</h3><p>ضبط‌ها در فضای ذخیره‌سازی B2 نگهداری می‌شوند؛ لینک دانلود ۱۵ دقیقه اعتبار دارد.</p>{recordings.length ? recordings.map(rec => <div className="recording-row" key={rec.id}><span className={`recording-status ${rec.status}`}>{rec.status === "recording" ? "در حال ضبط" : rec.status === "completed" ? "کامل" : rec.status === "stopped" ? "متوقف‌شده" : "ناموفق"}</span><div><strong>{rec.classTitle}</strong><small>{dateTime.format(new Date(rec.startedAt))} · {rec.durationSeconds ? `مدت ${Math.floor(rec.durationSeconds / 60)} دقیقه و ${rec.durationSeconds % 60} ثانیه` : "—"}</small></div>{rec.downloadUrl && <a href={rec.downloadUrl} target="_blank" rel="noreferrer">دانلود و پخش</a>}</div>) : <p>هنوز ضبطی ثبت نشده است.</p>}</div>}
     {room && <LiveClassRoom classId={room.id} title={room.title} courseTitle={room.courseTitle} role={role} onClose={() => { roomRef.current = null; setRoom(null); }} onEnded={() => { void refresh(); setPostClassAttendanceId(room.id); setNotice("جلسه برای مدیر ثبت شد؛ غیبت‌ها را بررسی و در صورت تأیید ارسال کنید."); }} />}
   </section>;
 }

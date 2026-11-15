@@ -12,6 +12,8 @@
     "node": ">=22.13"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1169.0",
+    "@aws-sdk/s3-request-presigner": "^3.1169.0",
     "@libsql/client": "^0.18.0",
     "@school/shared": "*",
     "livekit-client": "^2.23.0",

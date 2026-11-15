@@ -1,5 +1,8 @@
 import type { AuthenticatedUser } from "@/lib/auth-db";
-import { RoomServiceClient } from "livekit-server-sdk";
+import { EgressClient, EgressStatus, EncodedFileOutput, EncodedFileType, EncodingOptionsPreset, RoomServiceClient, S3Upload } from "livekit-server-sdk";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import type { Db } from "@/lib/db";
 import { dbGet, dbAll, dbRun, dbExec, dbTransaction } from "@/lib/db";
 
 const expiryTimers=new Map<number,ReturnType<typeof setTimeout>>();
@@ -18,7 +21,7 @@ export async function onlineDb() {
     status TEXT NOT NULL DEFAULT 'scheduled' CHECK(status IN ('scheduled','live','ended','cancelled')),
     actual_started_at TEXT, actual_ended_at TEXT, extension_minutes INTEGER NOT NULL DEFAULT 0,
     created_by INTEGER NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL
-  ); CREATE TABLE IF NOT EXISTS online_class_bans(online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE,registration_id INTEGER NOT NULL REFERENCES student_registrations(id) ON DELETE CASCADE,banned_by INTEGER NOT NULL REFERENCES users(id),banned_at INTEGER NOT NULL,PRIMARY KEY(online_class_id,registration_id));CREATE TABLE IF NOT EXISTS online_class_admin_only_history(online_class_id INTEGER PRIMARY KEY REFERENCES online_classes(id) ON DELETE CASCADE,hidden_by INTEGER NOT NULL REFERENCES users(id),hidden_at INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS online_class_polls(id INTEGER PRIMARY KEY, online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE, question TEXT NOT NULL, options_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')), created_by INTEGER NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS online_class_poll_votes(poll_id INTEGER NOT NULL REFERENCES online_class_polls(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), option_index INTEGER NOT NULL, voted_at INTEGER NOT NULL, PRIMARY KEY(poll_id,user_id));CREATE TABLE IF NOT EXISTS online_class_admissions(online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','admitted','denied')), decided_by INTEGER REFERENCES users(id), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(online_class_id,user_id));CREATE INDEX IF NOT EXISTS online_classes_course_start_idx ON online_classes(course_id,starts_at);`));
+  ); CREATE TABLE IF NOT EXISTS online_class_bans(online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE,registration_id INTEGER NOT NULL REFERENCES student_registrations(id) ON DELETE CASCADE,banned_by INTEGER NOT NULL REFERENCES users(id),banned_at INTEGER NOT NULL,PRIMARY KEY(online_class_id,registration_id));CREATE TABLE IF NOT EXISTS online_class_admin_only_history(online_class_id INTEGER PRIMARY KEY REFERENCES online_classes(id) ON DELETE CASCADE,hidden_by INTEGER NOT NULL REFERENCES users(id),hidden_at INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS online_class_polls(id INTEGER PRIMARY KEY, online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE, question TEXT NOT NULL, options_json TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','closed')), created_by INTEGER NOT NULL REFERENCES users(id), created_at INTEGER NOT NULL);CREATE TABLE IF NOT EXISTS online_class_poll_votes(poll_id INTEGER NOT NULL REFERENCES online_class_polls(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), option_index INTEGER NOT NULL, voted_at INTEGER NOT NULL, PRIMARY KEY(poll_id,user_id));CREATE TABLE IF NOT EXISTS online_class_admissions(online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','admitted','denied')), decided_by INTEGER REFERENCES users(id), created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, PRIMARY KEY(online_class_id,user_id));CREATE TABLE IF NOT EXISTS online_class_recordings(id INTEGER PRIMARY KEY, online_class_id INTEGER NOT NULL REFERENCES online_classes(id) ON DELETE CASCADE, egress_id TEXT NOT NULL UNIQUE, status TEXT NOT NULL DEFAULT 'recording' CHECK(status IN ('recording','stopped','completed','failed')), file_path TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER, duration_seconds INTEGER, created_by INTEGER NOT NULL REFERENCES users(id));CREATE INDEX IF NOT EXISTS online_class_recordings_class_idx ON online_class_recordings(online_class_id,started_at);CREATE INDEX IF NOT EXISTS online_classes_course_start_idx ON online_classes(course_id,starts_at);`));
   const columns=new Set(((await dbAll(db, "PRAGMA table_info(online_classes)")) as Array<{name:string}>).map(x=>x.name));
   // join_url was never read anywhere (invite links use the #online-class-<id> hash); drop it when present.
   if(columns.has("join_url")){try{(await dbExec(db, "ALTER TABLE online_classes DROP COLUMN join_url"));}catch{/* Older SQLite cannot drop a column; the unused column is harmless. */}}
@@ -115,3 +118,135 @@ export async function listOnlineClassPolls(classId:number,userId:number):Promise
 export async function createOnlineClassPoll(actor:AuthenticatedUser,classId:number,question:string,options:string[]){const db=await onlineDb();const teacherId=await onlineClassTeacherId(classId);if(!teacherId||actor.role!=="teacher"||actor.id!==teacherId)return null;const result=await dbRun(db, "INSERT INTO online_class_polls(online_class_id,question,options_json,created_by,created_at) VALUES(?,?,?,?,?)", classId,question,JSON.stringify(options),actor.id,Date.now());return {id:Number(result.lastInsertRowid),question,options,status:"open" as const};}
 export async function voteOnlineClassPoll(classId:number,pollId:number,userId:number,optionIndex:number,role?:string){if(role==="admin")return {ok:false as const,error:"مدیر فقط می‌تواند نتایج نظرسنجی را ببیند و رأی نمی‌دهد."};const db=await onlineDb();const poll=(await dbGet(db, "SELECT id,options_json AS optionsJson,status FROM online_class_polls WHERE id=? AND online_class_id=?", pollId,classId)) as {id:number;optionsJson:string;status:string}|undefined;if(!poll)return {ok:false as const,error:"نظرسنجی پیدا نشد."};if(poll.status!=="open")return {ok:false as const,error:"این نظرسنجی بسته شده است."};let count=0;try{const parsed=JSON.parse(poll.optionsJson);count=Array.isArray(parsed)?parsed.length:0;}catch{count=0;}if(!Number.isInteger(optionIndex)||optionIndex<0||optionIndex>=count)return {ok:false as const,error:"گزینهٔ انتخاب‌شده معتبر نیست."};(await dbRun(db, "INSERT INTO online_class_poll_votes(poll_id,user_id,option_index,voted_at) VALUES(?,?,?,?) ON CONFLICT(poll_id,user_id) DO UPDATE SET option_index=excluded.option_index,voted_at=excluded.voted_at", pollId,userId,optionIndex,Date.now()));return {ok:true as const};}
 export async function closeOnlineClassPoll(actor:AuthenticatedUser,classId:number,pollId:number){const db=await onlineDb();const teacherId=await onlineClassTeacherId(classId);if(!teacherId||actor.role!=="teacher"||actor.id!==teacherId)return false;const changed=await dbRun(db, "UPDATE online_class_polls SET status='closed' WHERE id=? AND online_class_id=? AND status='open'", pollId,classId);return changed.changes>0;}
+
+// ---- Class recordings (LiveKit RoomCompositeEgress -> Backblaze B2, free tiers) ----
+export type OnlineClassRecordingStatus = "recording" | "stopped" | "completed" | "failed";
+export type OnlineClassRecordingView = {id:number;onlineClassId:number;classTitle:string;egressId:string;status:OnlineClassRecordingStatus;filePath:string;startedAt:number;endedAt:number|null;durationSeconds:number|null;downloadUrl?:string};
+type RecordingEnv = {ok:true;host:string;key:string;secret:string;bucket:string;endpoint:string;accessKey:string;appKey:string;region:string} | {ok:false;error:string};
+function recordingEnv():RecordingEnv{
+  const url=process.env.LIVEKIT_URL?.trim(),key=process.env.LIVEKIT_API_KEY?.trim(),secret=process.env.LIVEKIT_API_SECRET?.trim();
+  const bucket=process.env.B2_BUCKET?.trim(),endpoint=process.env.B2_ENDPOINT?.trim(),accessKey=process.env.B2_KEY_ID?.trim(),appKey=process.env.B2_APPLICATION_KEY?.trim();
+  if(!url||!key||!secret)return {ok:false,error:"کلید LiveKit در تنظیمات سرور نیست؛ ضبط در دسترس نیست."};
+  if([url,key,secret].some(v=>/devkey|placeholder/i.test(v)))return {ok:false,error:"کلید LiveKit هنوز مقدار نمونه است؛ ضبط در دسترس نیست."};
+  if(!bucket||!endpoint||!accessKey||!appKey)return {ok:false,error:"تنظیمات فضای ذخیره‌سازی ضبط (B2) در سرور کامل نیست."};
+  const region=process.env.B2_REGION?.trim()||endpoint.match(/s3\.([a-z0-9-]+)\.backblazeb2/i)?.[1]||"us-east-005";
+  return {ok:true,host:url.replace(/^ws:/i,"http:").replace(/^wss:/i,"https:"),key,secret,bucket,endpoint,accessKey,appKey,region};
+}
+const FREE_EGRESS_MONTHLY_SECONDS = 3300; // LiveKit Build free plan: 60 egress min/month; stop 5 min early.
+async function monthlyRecordingSeconds(db:Db):Promise<number>{
+  const nowLocal=schoolNow();
+  const monthStart=localEpoch(nowLocal.slice(0,7)+"-01T00:00");
+  const rows=(await dbAll(db,"SELECT started_at AS startedAt,ended_at AS endedAt,duration_seconds AS durationSeconds,status FROM online_class_recordings WHERE started_at>=?",monthStart)) as Array<{startedAt:number;endedAt:number|null;durationSeconds:number|null;status:string}>;
+  let total=0;const now=Date.now();
+  for(const r of rows){if(r.status==="recording")total+=Math.max(0,Math.floor((now-r.startedAt)/1000));else if(r.durationSeconds)total+=r.durationSeconds;}
+  return total;
+}
+function recordingErrorMessage(error:unknown):string{
+  const msg=error instanceof Error?error.message:"";
+  if(/quota|limit[_\s-]?reached|insufficient|exceed/i.test(msg))return "سهمیهٔ رایگان ضبط LiveKit برای این ماه تمام شده است (۶۰ دقیقه در ماه).";
+  return "شروع ضبط انجام نشد؛ اتصال به LiveKit برقرار نشد.";
+}
+async function refreshRecordingRow(env:Extract<RecordingEnv,{ok:true}>,row:{id:number;egressId:string;startedAt:number}):Promise<void>{
+  if(!row.egressId||row.egressId.startsWith("pending-"))return;
+  try{
+    const client=new EgressClient(env.host,env.key,env.secret);
+    const list=await client.listEgress({egressId:row.egressId});
+    const info=list[0];if(!info)return;
+    const db=await onlineDb();
+    if(info.status===EgressStatus.EGRESS_COMPLETE||info.status===EgressStatus.EGRESS_FAILED||info.status===EgressStatus.EGRESS_ABORTED||info.status===EgressStatus.EGRESS_LIMIT_REACHED){
+      const endedAt=info.endedAt?Math.round(Number(info.endedAt)/1e6):Date.now();
+      const duration=info.fileResults?.[0]?.duration?Math.round(Number(info.fileResults[0].duration)/1e9):Math.max(0,Math.round((endedAt-row.startedAt)/1000));
+      const filePath=info.fileResults?.[0]?.location||undefined;
+      const status=info.status===EgressStatus.EGRESS_COMPLETE?"completed":"failed";
+      if(filePath)await dbRun(db,"UPDATE online_class_recordings SET status=?,ended_at=?,duration_seconds=?,file_path=? WHERE id=? AND status='recording'",status,endedAt,duration,filePath,row.id);
+      else await dbRun(db,"UPDATE online_class_recordings SET status=?,ended_at=?,duration_seconds=? WHERE id=? AND status='recording'",status,endedAt,duration,row.id);
+    }
+  }catch{/* Refresh is best-effort; the row stays 'recording' until the next list. */}
+}
+export async function startOnlineClassRecording(actor:AuthenticatedUser,classId:number){
+  const db=await onlineDb();
+  const teacherId=await onlineClassTeacherId(classId);
+  if(!teacherId||actor.role!=="teacher"||actor.id!==teacherId)return {ok:false as const,error:"فقط دبیر همان کلاس می‌تواند ضبط را شروع کند."};
+  const live=await onlineClassAccess(actor,classId);
+  if(!live)return {ok:false as const,error:"جلسهٔ زنده‌ای برای این کلاس در حال برگزاری نیست."};
+  const active=(await dbGet(db,"SELECT id FROM online_class_recordings WHERE online_class_id=? AND status='recording'",classId)) as {id:number}|undefined;
+  if(active)return {ok:false as const,error:"ضبط این کلاس در حال انجام است."};
+  const env=recordingEnv();if(!env.ok)return {ok:false as const,error:env.error};
+  const concurrent=(await dbGet(db,"SELECT COUNT(*) AS n FROM online_class_recordings WHERE status='recording'")) as {n:number}|undefined;
+  if(Number(concurrent?.n||0)>=2)return {ok:false as const,error:"هم‌زمان فقط ۲ ضبط ممکن است؛ ابتدا یک ضبط را متوقف کنید."};
+  if((await monthlyRecordingSeconds(db))>=FREE_EGRESS_MONTHLY_SECONDS)return {ok:false as const,error:"سهمیهٔ رایگان ضبط این ماه (۶۰ دقیقه) تقریباً تمام شده است."};
+  const startedAt=Date.now();
+  const tehranDate=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Tehran",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(startedAt));
+  const filePath=`recordings/class-${classId}/${tehranDate}-${startedAt}.mp4`;
+  const inserted=await dbRun(db,"INSERT INTO online_class_recordings(online_class_id,egress_id,status,file_path,started_at,created_by) VALUES(?,?,'recording',?,?,?)",classId,`pending-${classId}-${startedAt}`,filePath,startedAt,actor.id);
+  const recordingId=Number(inserted.lastInsertRowid);
+  try{
+    const client=new EgressClient(env.host,env.key,env.secret);
+    const output=new EncodedFileOutput({fileType:EncodedFileType.MP4,filepath:filePath,output:{case:"s3",value:new S3Upload({accessKey:env.accessKey,secret:env.appKey,region:env.region,endpoint:env.endpoint,bucket:env.bucket,forcePathStyle:false})}});
+    const info=await client.startRoomCompositeEgress(`school-class-${classId}`,output,{encodingOptions:EncodingOptionsPreset.H264_720P_30});
+    await dbRun(db,"UPDATE online_class_recordings SET egress_id=? WHERE id=?",info.egressId,recordingId);
+    return {ok:true as const,recordingId,egressId:info.egressId,startedAt,filePath};
+  }catch(error){
+    await dbRun(db,"UPDATE online_class_recordings SET status='failed',ended_at=? WHERE id=?",Date.now(),recordingId);
+    return {ok:false as const,error:recordingErrorMessage(error)};
+  }
+}
+export async function stopOnlineClassRecording(actor:AuthenticatedUser,classId:number){
+  const db=await onlineDb();
+  const teacherId=await onlineClassTeacherId(classId);
+  if(!teacherId||actor.role!=="teacher"||actor.id!==teacherId)return {ok:false as const,error:"فقط دبیر همان کلاس می‌تواند ضبط را متوقف کند."};
+  const row=(await dbGet(db,"SELECT id,egress_id AS egressId,started_at AS startedAt FROM online_class_recordings WHERE online_class_id=? AND status='recording' ORDER BY started_at DESC",classId)) as {id:number;egressId:string;startedAt:number}|undefined;
+  if(!row)return {ok:false as const,error:"ضبط فعالی برای این کلاس نیست."};
+  const env=recordingEnv();if(!env.ok)return {ok:false as const,error:env.error};
+  const client=new EgressClient(env.host,env.key,env.secret);
+  try{
+    const info=await client.stopEgress(row.egressId);
+    const endedAt=info.endedAt?Math.round(Number(info.endedAt)/1e6):Date.now();
+    const duration=Math.max(0,Math.round((endedAt-row.startedAt)/1000));
+    await dbRun(db,"UPDATE online_class_recordings SET status='stopped',ended_at=?,duration_seconds=? WHERE id=? AND status='recording'",endedAt,duration,row.id);
+    return {ok:true as const,durationSeconds:duration};
+  }catch{
+    // Egress may already have ended (room closed): read its final state instead.
+    try{
+      const list=await client.listEgress({egressId:row.egressId});
+      const info=list[0];
+      if(info&&(info.status===EgressStatus.EGRESS_COMPLETE||info.status===EgressStatus.EGRESS_FAILED||info.status===EgressStatus.EGRESS_ABORTED)){
+        const endedAt=info.endedAt?Math.round(Number(info.endedAt)/1e6):Date.now();
+        const duration=Math.max(0,Math.round((endedAt-row.startedAt)/1000));
+        await dbRun(db,"UPDATE online_class_recordings SET status=?,ended_at=?,duration_seconds=? WHERE id=? AND status='recording'",info.status===EgressStatus.EGRESS_COMPLETE?"completed":"failed",endedAt,duration,row.id);
+        return {ok:true as const,durationSeconds:duration};
+      }
+    }catch{/* fall through */}
+    await dbRun(db,"UPDATE online_class_recordings SET status='stopped',ended_at=?,duration_seconds=? WHERE id=? AND status='recording'",Date.now(),Math.max(0,Math.round((Date.now()-row.startedAt)/1000)),row.id);
+    return {ok:true as const,durationSeconds:Math.max(0,Math.round((Date.now()-row.startedAt)/1000))};
+  }
+}
+export async function listOnlineClassRecordings(actor:AuthenticatedUser,classId?:number):Promise<OnlineClassRecordingView[]>{
+  const db=await onlineDb();
+  const env=recordingEnv();
+  const where=actor.role==="admin"?"":"AND EXISTS(SELECT 1 FROM online_classes o JOIN courses c ON c.id=o.course_id WHERE o.id=r.online_class_id AND c.teacher_id=?)";
+  const args:any[]=actor.role==="admin"?[]:[actor.id];
+  if(classId){args.unshift(classId);}
+  const rows=(await dbAll(db,`SELECT r.id,r.online_class_id AS onlineClassId,o.title AS classTitle,r.egress_id AS egressId,r.status,r.file_path AS filePath,r.started_at AS startedAt,r.ended_at AS endedAt,r.duration_seconds AS durationSeconds FROM online_class_recordings r JOIN online_classes o ON o.id=r.online_class_id ${classId?"WHERE r.online_class_id=?":"WHERE 1=1"} ${where} ORDER BY r.started_at DESC LIMIT 100`,...args)) as Array<{id:number;onlineClassId:number;classTitle:string;egressId:string;status:OnlineClassRecordingStatus;filePath:string;startedAt:number;endedAt:number|null;durationSeconds:number|null}>;
+  if(env.ok){
+    for(const row of rows)if(row.status==="recording")await refreshRecordingRow(env,row);
+    const fresh=(await dbAll(db,`SELECT r.id,r.online_class_id AS onlineClassId,o.title AS classTitle,r.egress_id AS egressId,r.status,r.file_path AS filePath,r.started_at AS startedAt,r.ended_at AS endedAt,r.duration_seconds AS durationSeconds FROM online_class_recordings r JOIN online_classes o ON o.id=r.online_class_id ${classId?"WHERE r.online_class_id=?":"WHERE 1=1"} ${where} ORDER BY r.started_at DESC LIMIT 100`,...args)) as typeof rows;
+    return fresh.map(r=>({...r,status:r.status as OnlineClassRecordingStatus}));
+  }
+  return rows.map(r=>({...r,status:r.status as OnlineClassRecordingStatus}));
+}
+export async function recordingDownloadUrl(actor:AuthenticatedUser,recordingId:number):Promise<{ok:true;url:string;filePath:string}|{ok:false;error:string}>{
+  const db=await onlineDb();
+  const row=(await dbGet(db,"SELECT r.id,r.file_path AS filePath,r.status,c.teacher_id AS teacherId FROM online_class_recordings r JOIN online_classes o ON o.id=r.online_class_id JOIN courses c ON c.id=o.course_id WHERE r.id=?",recordingId)) as {id:number;filePath:string;status:string;teacherId:number}|undefined;
+  if(!row)return {ok:false,error:"ضبط پیدا نشد."};
+  if(actor.role!=="admin"&&!(actor.role==="teacher"&&actor.id===row.teacherId))return {ok:false,error:"به این ضبط دسترسی ندارید."};
+  if(row.status==="recording")return {ok:false,error:"ضبط هنوز در حال انجام است؛ پس از توقف قابل دانلود است."};
+  if(row.status==="failed")return {ok:false,error:"این ضبط ناموفق بوده و فایلی ندارد."};
+  const env=recordingEnv();if(!env.ok)return {ok:false,error:env.error};
+  try{
+    const client=new S3Client({region:env.region,endpoint:env.endpoint,credentials:{accessKeyId:env.accessKey,secretAccessKey:env.appKey},forcePathStyle:false});
+    const url=await getSignedUrl(client,new GetObjectCommand({Bucket:env.bucket,Key:row.filePath}),{expiresIn:900});
+    return {ok:true,url,filePath:row.filePath};
+  }catch{return {ok:false,error:"ساخت لینک دانلود انجام نشد."};}
+}
+export async function monthlyRecordingUsageSeconds():Promise<number>{const db=await onlineDb();return monthlyRecordingSeconds(db);}

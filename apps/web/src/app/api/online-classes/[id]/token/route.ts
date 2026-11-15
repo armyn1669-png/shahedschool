@@ -7,7 +7,31 @@ import { onlineClassAccess } from "@/lib/online-classes";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function POST(_request: Request, { params }: { params: Promise<{ id: string }> }) {
+function siteHost(request: Request) {
+  return (request.headers.get("host") || "").split(":")[0].toLowerCase();
+}
+
+function siteIsLocal(request: Request) {
+  const host = siteHost(request);
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function siteIsHttps(request: Request) {
+  const forwarded = (request.headers.get("x-forwarded-proto") || "").split(",")[0].trim().toLowerCase();
+  if (forwarded) return forwarded === "https";
+  try { return new URL(request.url).protocol === "https:"; } catch { return false; }
+}
+
+function isLoopbackOrPrivate(hostname: string) {
+  const host = hostname.toLowerCase().replace(/^\[|\]$/g, "");
+  if (host === "localhost" || host === "::1") return true;
+  const parts = host.split(".");
+  if (parts.length !== 4 || parts.some(part => !/^\d+$/.test(part))) return false;
+  const [a, b] = parts.map(Number);
+  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
+export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const user = await currentUser();
   if (!user) return NextResponse.json({ error: "برای ورود به کلاس باید وارد حساب شوید." }, { status: 401, headers: { "Cache-Control": "no-store" } });
   const { id: rawId } = await params;
@@ -18,8 +42,12 @@ export async function POST(_request: Request, { params }: { params: Promise<{ id
   const serverUrl = process.env.LIVEKIT_URL?.trim();
   const apiKey = process.env.LIVEKIT_API_KEY?.trim();
   const apiSecret = process.env.LIVEKIT_API_SECRET?.trim();
-  if (!serverUrl || !apiKey || !apiSecret) return NextResponse.json({ error: "سرور کلاس آنلاین هنوز پیکربندی نشده است. تنظیمات LiveKit را در .env.local وارد و سرور سایت را دوباره اجرا کنید." }, { status: 503, headers: { "Cache-Control": "no-store" } });
-  if (!/^wss?:\/\//i.test(serverUrl)) return NextResponse.json({ error: "نشانی سرور کلاس آنلاین باید با ws:// یا wss:// شروع شود." }, { status: 503 });
+  if (!serverUrl || !apiKey || !apiSecret) return NextResponse.json({ code: "livekit_not_configured", error: "سرور کلاس آنلاین هنوز پیکربندی نشده است. مدیر باید LIVEKIT_URL و LIVEKIT_API_KEY و LIVEKIT_API_SECRET را در متغیرهای محیطی هاست (مثلاً Netlify) ست کند و دوباره دیپلوی بگیرد؛ در اجرای لوکال همان‌ها را در apps/web/.env.local بگذارید." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  if (!/^wss?:\/\//i.test(serverUrl)) return NextResponse.json({ code: "livekit_bad_url", error: "نشانی سرور کلاس آنلاین باید با ws:// یا wss:// شروع شود." }, { status: 503 });
+  let livekitHost = "";
+  try { livekitHost = new URL(serverUrl).hostname; } catch { return NextResponse.json({ code: "livekit_bad_url", error: "نشانی سرور کلاس آنلاین معتبر نیست." }, { status: 503 }); }
+  if (isLoopbackOrPrivate(livekitHost) && !siteIsLocal(request)) return NextResponse.json({ code: "livekit_local_url", error: "سرور کلاس آنلاین روی رایانهٔ لوکال تنظیم شده و مرورگر شما از اینترنت به آن نمی‌رسد. مدیر باید یک سرور LiveKit عمومی با نشانی wss:// وصل کند." }, { status: 503, headers: { "Cache-Control": "no-store" } });
+  if (/^ws:\/\//i.test(serverUrl) && siteIsHttps(request)) return NextResponse.json({ code: "livekit_insecure_url", error: "نشانی سرور کلاس آنلاین امن نیست (ws://) و مرورگر روی سایت امن به آن وصل نمی‌شود. مدیر باید نشانی wss:// برای LiveKit بدهد." }, { status: 503, headers: { "Cache-Control": "no-store" } });
   const roomName = `school-class-${onlineClass.id}`;
   const token = new AccessToken(apiKey,apiSecret,{identity:`user-${user.id}-${randomUUID()}`,name:user.displayName,metadata:JSON.stringify({role:user.role}),ttl:"2h"});
   const isTeacher=user.role==="teacher";

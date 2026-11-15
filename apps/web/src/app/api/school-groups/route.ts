@@ -17,14 +17,16 @@ export async function POST(request:Request){
   let body:Record<string,unknown>;
   try{body=await request.json();}catch{return NextResponse.json({error:"درخواست معتبر نیست."},{status:400});}
   const text=(key:string,max:number)=>typeof body[key]==="string"?(body[key] as string).trim().slice(0,max):"";
-  const kind=body.kind,visibility=body.visibility;
-  const courseIds=Array.isArray(body.courseIds)?body.courseIds.map(Number):[];
-  const staffIds=Array.isArray(body.staffIds)?body.staffIds.map(Number):[];
+  const visibility=body.visibility;
+  const target=body.target&&typeof body.target==="object"?body.target as Record<string,unknown>:null;
+  const grade=typeof target?.grade==="string"?target.grade.trim():"";
+  const fieldOfStudy=typeof target?.fieldOfStudy==="string"?target.fieldOfStudy.trim():"";
+  const branch=typeof target?.branch==="string"?target.branch.trim():"";
   const imageData=text("imageData",2_500_000);
-  if(!text("name",80)||!(["channel","group"] as unknown[]).includes(kind)||!(["school","selected"] as unknown[]).includes(visibility)||courseIds.length>100||staffIds.length>100||courseIds.some(id=>!Number.isSafeInteger(id)||id<1)||staffIds.some(id=>!Number.isSafeInteger(id)||id<1)||imageData.length>2_000_000){
-    return NextResponse.json({error:"نام، نوع، شیوهٔ دسترسی یا تصویر معتبر نیست."},{status:400,headers:{"Cache-Control":"no-store"}});
+  if(!text("name",80)||!text("externalUrl",500)||!(["school","selected"] as unknown[]).includes(visibility)||imageData.length>2_000_000||(visibility==="selected"&&(!grade||!fieldOfStudy))){
+    return NextResponse.json({error:"نام، لینک، شیوهٔ نمایش یا تصویر معتبر نیست."},{status:400,headers:{"Cache-Control":"no-store"}});
   }
-  const result=await createSchoolGroup(user,{name:text("name",80),description:text("description",500),kind:kind as "channel"|"group",visibility:visibility as "school"|"selected",externalUrl:text("externalUrl",500),imageData,courseIds,staffIds});
+  const result=await createSchoolGroup(user,{name:text("name",80),visibility:visibility as "school"|"selected",externalUrl:text("externalUrl",500),imageData,target:visibility==="selected"?{grade,fieldOfStudy,branch}:null});
   return result.ok?NextResponse.json(result,{status:201,headers:{"Cache-Control":"no-store"}}):NextResponse.json({error:result.error},{status:400,headers:{"Cache-Control":"no-store"}});
 }
 

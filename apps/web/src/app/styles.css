@@ -648,3 +648,40 @@ body :where(h1,h2,h3,h4,h5,h6){font-size:max(18px,1em)!important;line-height:1.6
 .attendance-history-tabs a:hover{border-color:#4579a8;background:#eaf3fb}
 .live-screen-preview .live-track-video,.live-floating-video.primary-screen .live-track-video{object-fit:contain!important;min-height:0!important;max-width:100%;max-height:100%;image-rendering:auto}
 .live-floating-video.primary-screen .live-screen-preview{inset:0 0 38px!important}
+
+/* ---- Mobile image safety net (added 2026-11-15, mobile image repair) ----
+   Diagnosis: the file had NO global img rule at all — every image relied on
+   one specific class/ancestor selector. The student-hero banner img
+   (StudentDashboard.tsx, no className) is only covered by the late
+   .student-hero-clickarea img rule; the base .student-hero>img rule never
+   matches because the img is a grandchild (inside .student-hero-clickarea).
+   These rules are appended last so they act as a safety net without
+   changing desktop layout: every existing class rule below/above still wins
+   over the bare element selectors (higher specificity), and the explicit
+   container rules only restate the intended contain/cover behaviour.
+   RTL is untouched: no direction, margin-inline or text-align changes here. */
+img{max-width:100%;height:auto}
+video{max-width:100%}
+/* Student banner: correct descendant selector (the old .student-hero>img
+   never matches). Image always fills the hero box and is centre-cropped,
+   never stretched and never wider than the hero; the hero display itself
+   (min-height, copy, arrows, dots) is intentionally unchanged. */
+.student-hero .student-hero-clickarea img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:cover;object-position:center}
+/* Channel / group images: fixed square avatar (cover-cropped, never
+   stretched) and fixed preview thumb, both clipped to their boxes. */
+.school-group-avatar img{display:block;width:100%;height:100%;object-fit:cover}
+.group-image-preview{display:block;max-width:100%;object-fit:cover}
+/* News / article images: full card width, natural aspect preserved
+   (height:auto), cropped only by the max-height, never stretched. */
+.announcement-cover{display:block;width:100%;max-width:100%;height:auto;max-height:370px;object-fit:cover}
+.announcement-image img{display:block;max-width:100%;object-fit:cover}
+/* Live-class board image / PDF canvas: contained (never cropped or
+   stretched) inside the 3/2 board sheet, which already hides overflow. */
+.live-board-media{max-width:100%;object-fit:contain}
+@media(max-width:650px){.announcement-cover{max-height:240px}}
+@media(max-width:520px){
+  /* Narrow hero: the copy spans (nearly) the full width, so strengthen the
+     right-to-left shade just enough that banner text stays readable over
+     any bright photo. Banner size/height are unchanged. */
+  .student-hero-shade{background:linear-gradient(270deg,#000c 0%,#0009 50%,#0006 100%)}
+}

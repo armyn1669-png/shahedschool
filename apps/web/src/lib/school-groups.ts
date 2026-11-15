@@ -4,6 +4,13 @@ import { dbGet, dbAll, dbRun, dbExec, dbTransaction, type Db } from "@/lib/db";
 const groupsSchemaCache=globalThis as typeof globalThis & {__schoolGroupsSchemaVersion?:number;__schoolGroupsDatabases?:WeakSet<object>};
 const GROUPS_SCHEMA_VERSION=2;
 
+// مخاطب «پایه و رشتهٔ خاص»: همان مقدارهای متعارف ثبت‌نام و برنامهٔ مدرسه.
+export const GROUP_GRADES=["دهم","یازدهم","دوازدهم"] as const;
+export const GROUP_FIELDS=["ریاضی و فیزیک","علوم تجربی","علوم انسانی","هنر","سایر"] as const;
+export type GroupTarget={grade:string;fieldOfStudy:string;branch:string};
+
+function normalizeBranch(value:string){const digits:Record<string,string>={"۱":"1","۲":"2","۳":"3","۴":"4","۵":"5","۶":"6","۷":"7","۸":"8","۹":"9"};return value===""?"":digits[value]??value;}
+
 export async function groupsDb(){
   const db=await academicDatabase();
   if(groupsSchemaCache.__schoolGroupsSchemaVersion!==GROUPS_SCHEMA_VERSION){groupsSchemaCache.__schoolGroupsSchemaVersion=GROUPS_SCHEMA_VERSION;groupsSchemaCache.__schoolGroupsDatabases=new WeakSet<object>();}
@@ -53,6 +60,19 @@ async function seedSchoolChannels(db:Db){
   if(!alreadySeeded)(await dbRun(db, "INSERT OR IGNORE INTO app_settings(setting_key,setting_value) VALUES('default_school_channels_seeded','true')"));
 }
 
+// چه کسی گروه را می‌بیند؟ مدیر همه را می‌بیند؛ بقیه گروه‌های «همهٔ مدرسه»، گروه‌هایی که
+// عضو آن‌اند، گروه‌های کلاس‌شان (پیوندهای قدیمی school_group_courses) و گروه‌هایی که
+// هدفشان (school_group_targets) با پایه/رشته/شعبهٔ آن‌ها می‌خواند. شعبهٔ خالی یعنی همهٔ شعبه‌ها.
+// گروه‌های قدیمی که فقط پیوند کلاس/عضو دارند بدون هیچ تغییری همین‌طور دیده می‌شوند.
+function groupVisibilityCondition(){
+  return `(?='admin' OR g.visibility='school'
+    OR EXISTS(SELECT 1 FROM school_group_members m WHERE m.group_id=g.id AND m.user_id=?)
+    OR EXISTS(SELECT 1 FROM school_group_courses gc JOIN courses sc ON sc.id=gc.course_id WHERE gc.group_id=g.id AND ((?='teacher' AND sc.teacher_id=?) OR (?='student' AND EXISTS(SELECT 1 FROM student_registrations sr WHERE sr.account_user_id=? AND sr.status='approved' AND sr.grade=sc.grade AND sr.field_of_study=sc.field_of_study AND sr.branch=sc.branch))))
+    OR (?='student' AND EXISTS(SELECT 1 FROM school_group_targets t JOIN student_registrations r ON r.account_user_id=? AND r.status='approved' WHERE t.group_id=g.id AND (r.grade=t.grade OR REPLACE(r.grade,'پایه ','')=t.grade OR (r.grade IN ('۱۰','10') AND t.grade='دهم') OR (r.grade IN ('۱۱','11') AND t.grade='یازدهم') OR (r.grade IN ('۱۲','12') AND t.grade='دوازدهم')) AND r.field_of_study LIKE '%'||t.field_of_study||'%' AND (t.branch='' OR REPLACE(REPLACE(REPLACE(REPLACE(r.branch,'۱','1'),'۲','2'),'۳','3'),'۴','4')=t.branch)))
+    OR (?='teacher' AND EXISTS(SELECT 1 FROM school_group_targets t JOIN courses c ON c.teacher_id=? WHERE t.group_id=g.id AND c.grade=t.grade AND c.field_of_study LIKE '%'||t.field_of_study||'%' AND (t.branch='' OR REPLACE(REPLACE(REPLACE(REPLACE(c.branch,'۱','1'),'۲','2'),'۳','3'),'۴','4')=t.branch))))`;
+}
+function groupVisibilityParams(user:AuthenticatedUser){return [user.role,user.id,user.role,user.id,user.role,user.id,user.role,user.id,user.role,user.id];}
+
 export async function schoolGroupsSnapshot(user:AuthenticatedUser){
   const db=await groupsDb();
   await seedSchoolChannels(db);
@@ -61,44 +81,37 @@ export async function schoolGroupsSnapshot(user:AuthenticatedUser){
     (SELECT COUNT(*) FROM school_group_members m WHERE m.group_id=g.id AND m.member_role='member') AS memberCount,
     EXISTS(SELECT 1 FROM school_group_members m WHERE m.group_id=g.id AND m.user_id=?) AS isMember
     FROM school_groups g JOIN users u ON u.id=g.created_by
-    WHERE ?='admin' OR g.visibility='school' OR EXISTS(SELECT 1 FROM school_group_members m WHERE m.group_id=g.id AND m.user_id=?) OR EXISTS(SELECT 1 FROM school_group_courses gc JOIN courses sc ON sc.id=gc.course_id WHERE gc.group_id=g.id AND ((?='teacher' AND sc.teacher_id=?) OR (?='student' AND EXISTS(SELECT 1 FROM student_registrations sr WHERE sr.account_user_id=? AND sr.status='approved' AND sr.grade=sc.grade AND sr.field_of_study=sc.field_of_study AND sr.branch=sc.branch))))
-    OR (?='student' AND EXISTS(SELECT 1 FROM school_group_targets t JOIN student_registrations r ON r.account_user_id=? AND r.status='approved' WHERE t.group_id=g.id AND (r.grade=t.grade OR r.grade IN ('پایه دهم','۱۰','10')) AND r.field_of_study LIKE '%'||t.field_of_study||'%' AND REPLACE(REPLACE(REPLACE(r.branch,'۱','1'),'۲','2'),' ','')=t.branch))
-    ORDER BY g.created_at DESC`, user.id,user.role,user.id,user.role,user.id,user.role,user.id,user.role,user.id));
-  if(user.role!=="admin") return {groups,courses:[],staff:[]};
-  const courses=(await dbAll(db, `SELECT c.id,c.title,c.grade,c.field_of_study AS fieldOfStudy,c.branch,c.room,u.display_name AS teacherName,
-    (SELECT COUNT(*) FROM student_registrations r WHERE r.status='approved' AND r.grade=c.grade AND r.field_of_study=c.field_of_study AND r.branch=c.branch AND r.account_user_id IS NOT NULL) AS studentCount
-    FROM courses c JOIN users u ON u.id=c.teacher_id ORDER BY c.grade,c.title,c.room`));
-  const staff=(await dbAll(db, "SELECT id,display_name AS displayName,role FROM users WHERE role IN ('admin','teacher') AND status='active' ORDER BY role,display_name"));
-  return {groups,courses,staff};
+    WHERE ${groupVisibilityCondition()}
+    ORDER BY g.created_at DESC`, user.id,...groupVisibilityParams(user)));
+  return {groups};
 }
 
-export async function schoolGroupImage(user:AuthenticatedUser,id:number){const db=await groupsDb();const row=(await dbGet(db, `SELECT g.image_data AS imageData FROM school_groups g WHERE g.id=? AND ( ?='admin' OR g.visibility='school' OR EXISTS(SELECT 1 FROM school_group_members m WHERE m.group_id=g.id AND m.user_id=?) OR EXISTS(SELECT 1 FROM school_group_courses gc JOIN courses c ON c.id=gc.course_id WHERE gc.group_id=g.id AND ((?='teacher' AND c.teacher_id=?) OR (?='student' AND EXISTS(SELECT 1 FROM student_registrations r WHERE r.account_user_id=? AND r.status='approved' AND r.grade=c.grade AND r.field_of_study=c.field_of_study AND r.branch=c.branch)))) OR (?='student' AND EXISTS(SELECT 1 FROM school_group_targets t JOIN student_registrations r ON r.account_user_id=? AND r.status='approved' WHERE t.group_id=g.id AND (r.grade=t.grade OR r.grade IN ('پایه دهم','۱۰','10')) AND r.field_of_study LIKE '%'||t.field_of_study||'%' AND REPLACE(REPLACE(REPLACE(r.branch,'۱','1'),'۲','2'),' ','')=t.branch))`, id,user.role,user.id,user.role,user.id,user.role,user.id,user.role,user.id)) as {imageData:string}|undefined;if(!row?.imageData)return null;const match=row.imageData.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);if(!match)return null;return {mime:`image/${match[1]}`,bytes:Buffer.from(match[2],"base64")};}
+export async function schoolGroupImage(user:AuthenticatedUser,id:number){const db=await groupsDb();const row=(await dbGet(db, `SELECT g.image_data AS imageData FROM school_groups g WHERE g.id=? AND (${groupVisibilityCondition()})`, id,...groupVisibilityParams(user))) as {imageData:string}|undefined;if(!row?.imageData)return null;const match=row.imageData.match(/^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);if(!match)return null;return {mime:`image/${match[1]}`,bytes:Buffer.from(match[2],"base64")};}
 
-export async function createSchoolGroup(owner:AuthenticatedUser,input:{name:string;description:string;kind:"channel"|"group";visibility:"school"|"selected";externalUrl:string;imageData:string;courseIds:number[];staffIds:number[]}){
+// ثبت سادهٔ کانال: فقط لینک، نام، تصویر و مخاطب. نوع همیشه «کانال» است و توضیح خالی
+// می‌ماند؛ انتخاب کلاس و دبیر حذف شده و دیگر الزامی نیست. مخاطبِ «پایه و رشتهٔ خاص»
+// یک ردیف در school_group_targets می‌شود و در زمان نمایش محاسبه می‌شود، پس نیازی به
+// کپی‌کردن فهرست دانش‌آموزان در school_group_members نیست.
+export async function createSchoolGroup(owner:AuthenticatedUser,input:{name:string;visibility:"school"|"selected";externalUrl:string;imageData:string;target?:GroupTarget|null}){
   const db=await groupsDb();
-  const selectedCourses=[...new Set(input.courseIds)];
-  const selectedStaff=[...new Set(input.staffIds)];
-  const courses=selectedCourses.length?(await dbAll(db, `SELECT id,grade,field_of_study AS fieldOfStudy,branch,teacher_id AS teacherId FROM courses WHERE id IN (${selectedCourses.map(()=>"?").join(",")})`, ...selectedCourses)) as Array<{id:number;grade:string;fieldOfStudy:string;branch:string;teacherId:number}>:[];
-  if(courses.length!==selectedCourses.length)return {ok:false as const,error:"یکی از کلاس‌های انتخاب‌شده دیگر در دسترس نیست."};
-  if(input.visibility==="selected"&&!selectedCourses.length&&!selectedStaff.length)return {ok:false as const,error:"برای گروه خصوصی دست‌کم یک کلاس یا دبیر انتخاب کنید."};
+  if(input.visibility!=="school"&&input.visibility!=="selected")return {ok:false as const,error:"شیوهٔ نمایش معتبر نیست."};
   const eitaaUrl=input.externalUrl.trim();
+  if(!eitaaUrl)return {ok:false as const,error:"لینک کانال ایتا را وارد کنید."};
   if(eitaaUrl){try{const url=new URL(eitaaUrl);if(url.protocol!=="https:"||!/(^|\.)eitaa\.com$|(^|\.)eitaa\.ir$/i.test(url.hostname))return {ok:false as const,error:"لینک باید نشانی امن یک صفحه یا کانال ایتا باشد."};}catch{return {ok:false as const,error:"لینک ایتا معتبر نیست."};}}
-  if(input.kind==="channel"&&!eitaaUrl)return {ok:false as const,error:"برای ثبت کانال ایتا، لینک کانال را وارد کنید."};
   if(input.imageData&&!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(input.imageData))return {ok:false as const,error:"تصویر باید PNG، JPG یا WebP باشد."};
-  const managerCandidates=new Set<number>([owner.id,...selectedStaff,...courses.map(c=>c.teacherId)]);
-  if(managerCandidates.size>1){const ids=[...managerCandidates];const allowed=(await dbAll(db, `SELECT id FROM users WHERE id IN (${ids.map(()=>"?").join(",")}) AND role IN ('admin','teacher') AND status='active'`, ...ids)) as Array<{id:number}>;if(allowed.length!==ids.length)return {ok:false as const,error:"فقط مدیران و دبیران می‌توانند مدیر گروه باشند."};}
+  let target:GroupTarget|null=null;
+  if(input.visibility==="selected"){
+    const t=input.target;
+    if(!t||!(GROUP_GRADES as readonly string[]).includes(t.grade)||!(GROUP_FIELDS as readonly string[]).includes(t.fieldOfStudy))return {ok:false as const,error:"پایه و رشتهٔ مخاطب را انتخاب کنید."};
+    const branch=normalizeBranch(t.branch.trim());
+    if(branch!==""&&!/^[1-9]$/.test(branch))return {ok:false as const,error:"شعبهٔ مخاطب معتبر نیست."};
+    target={grade:t.grade,fieldOfStudy:t.fieldOfStudy,branch};
+  }
   const groupId=await dbTransaction(async (tx)=>{
-    const created=(await dbRun(tx, `INSERT INTO school_groups(name,description,kind,visibility,external_url,image_data,created_by,created_at) VALUES(?,?,?,?,?,?,?,?)`, input.name.trim().slice(0,80),input.description.trim().slice(0,500),input.kind,input.visibility,eitaaUrl,input.imageData,owner.id,Date.now()));
+    const created=(await dbRun(tx, `INSERT INTO school_groups(name,description,kind,visibility,external_url,image_data,created_by,created_at) VALUES(?,?,'channel',?,?,?,?,?)`, input.name.trim().slice(0,80),"",input.visibility,eitaaUrl,input.imageData,owner.id,Date.now()));
     const id=Number(created.lastInsertRowid),now=Date.now();
-    const addMemberSql="INSERT OR IGNORE INTO school_group_members(group_id,user_id,member_role,added_at) VALUES(?,?,?,?)";
-    await dbRun(tx, addMemberSql, id,owner.id,"manager",now);
-    for(const course of courses){
-      (await dbRun(tx, "INSERT INTO school_group_courses(group_id,course_id) VALUES(?,?)", id,course.id));
-      await dbRun(tx, addMemberSql, id,course.teacherId,"manager",now);
-      const roster=(await dbAll(tx, `SELECT account_user_id AS userId FROM student_registrations WHERE status='approved' AND grade=? AND field_of_study=? AND branch=? AND account_user_id IS NOT NULL`, course.grade,course.fieldOfStudy,course.branch)) as Array<{userId:number}>;
-      for(const student of roster)await dbRun(tx, addMemberSql, id,student.userId,"member",now);
-    }
-    for(const staffId of selectedStaff)await dbRun(tx, addMemberSql, id,staffId,"manager",now);
+    await dbRun(tx, "INSERT OR IGNORE INTO school_group_members(group_id,user_id,member_role,added_at) VALUES(?,?, 'manager',?)", id,owner.id,now);
+    if(target)await dbRun(tx, "INSERT INTO school_group_targets(group_id,grade,field_of_study,branch) VALUES(?,?,?,?)", id,target.grade,target.fieldOfStudy,target.branch);
     return id;
   });
   return {ok:true as const,id:groupId};
